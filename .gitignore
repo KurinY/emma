@@ -1,0 +1,38 @@
+# --- Secrets ----------------------------------------------------------------
+# The single most important rule of this file: no real configuration, ever.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# --- Python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# --- Tooling ----------------------------------------------------------------
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# --- Local artefacts --------------------------------------------------------
+# Backups live outside the repository (BACKUP_DIR, D:\EmmaBackups); these
+# patterns only catch copies that end up here by accident.
+*.tar.gz
+*.zip
+*.log
+
+# --- Editors and OS ---------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

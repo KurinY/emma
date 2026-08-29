@@ -1,0 +1,24 @@
+# EMMA v0.1.0 - pinned dependencies.
+#
+# Versions are pinned exactly so that a deploy today and a deploy in six months
+# install the very same code.  To upgrade, bump a line here on the development
+# machine, run the test suite, commit, and only then pull on the server -- the
+# procedure is spelled out in chapter 6 of docs/GUIDA.pdf.
+#
+# Transitive dependencies are resolved by pip and are intentionally not listed:
+# `pip freeze > /tmp/emma-freeze.txt` on the server captures the full tree if
+# you ever need to reproduce an exact environment.
+
+# --- Runtime ---------------------------------------------------------------
+anthropic==1.2.0
+fastapi==0.141.1
+python-dotenv==1.2.3
+python-telegram-bot==22.8
+uvicorn==0.52.4
+
+# --- Development and verification ------------------------------------------
+# Small and dependency-light; they are installed on the server too, on purpose:
+# after every `git pull` the update procedure runs the test suite in place.
+pytest==9.1.1
+pytest-asyncio==1.4.0
+ruff==0.16.5

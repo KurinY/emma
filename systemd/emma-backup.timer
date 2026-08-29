@@ -1,0 +1,31 @@
+# EMMA - daily backup schedule.
+#
+# Install and enable (see chapter 4 of docs/GUIDA.pdf):
+#   sudo cp systemd/emma-backup.service systemd/emma-backup.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now emma-backup.timer
+#
+# Check it:
+#   systemctl list-timers emma-backup.timer
+#   journalctl -u emma-backup.service --since yesterday
+
+[Unit]
+Description=Daily EMMA backup
+Documentation=file:/opt/emma/docs/GUIDA.pdf
+
+[Timer]
+Unit=emma-backup.service
+# Every night at 03:30 local time - the machine is idle and nobody is chatting.
+OnCalendar=*-*-* 03:30:00
+# Spread the start over 15 minutes so the backup never competes with whatever
+# else the system decided to do at exactly 03:30 (unattended-upgrades, say).
+RandomizedDelaySec=15min
+# If the server was off at 03:30, run as soon as it comes back up: a machine
+# that spends the night powered down would otherwise never be backed up.
+Persistent=true
+# Wall-clock accuracy is irrelevant here, and a loose timer lets systemd batch
+# wake-ups together.
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

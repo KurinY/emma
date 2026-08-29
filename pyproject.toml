@@ -1,0 +1,53 @@
+# Tooling configuration for EMMA.
+#
+# The project is deployed as a plain directory of modules rather than as an
+# installable distribution, so there is no [project] table here on purpose:
+# this file exists to configure ruff (formatter + linter) and pytest.
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+# Markdown is excluded on purpose: ruff would otherwise reformat the Python
+# snippets embedded in the documentation, where alignment is chosen for reading
+# rather than for the formatter.
+extend-exclude = [".venv", "venv", "*.md"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # import sorting
+    "N",    # PEP 8 naming
+    "UP",   # pyupgrade: keep the code idiomatic for the target version
+    "B",    # flake8-bugbear: likely bugs
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "PTH",  # prefer pathlib over os.path
+    "RUF",  # ruff-specific rules
+    "D",    # pydocstyle: every public function must be documented
+]
+ignore = [
+    "D107",  # __init__ is documented in the class docstring, not twice
+    "D203",  # incompatible with D211, which the google convention selects
+    "D213",  # incompatible with D212, which the google convention selects
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Test functions describe themselves through their names; a one-line docstring
+# on each of them would be noise rather than documentation.
+"tests/*" = ["D100", "D103"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.pytest.ini_options]
+# The project is not installed as a package: put the project root on sys.path
+# so that `import core.router` resolves the same way it does at runtime.
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"

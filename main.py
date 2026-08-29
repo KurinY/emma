@@ -1,0 +1,153 @@
+"""Process entry point.
+
+One process, one event loop, two jobs:
+
+* **uvicorn/FastAPI** owns the loop and exposes a tiny health endpoint on
+  loopback, which makes the service observable (``curl`` from the server,
+  ``systemctl status``) without opening anything to the network;
+* **the Telegram adapter** runs inside that same loop, started and stopped by
+  the FastAPI lifespan, so a ``systemctl stop`` shuts polling down cleanly
+  instead of killing it mid-update.
+
+Run it with ``python main.py``; in production systemd does exactly that (see
+``systemd/emma.service``).
+"""
+
+from __future__ import annotations
+
+import contextlib
+import logging
+import sys
+import time
+from collections.abc import AsyncIterator
+
+import uvicorn
+from fastapi import FastAPI
+
+from adapters.telegram import TelegramAdapter
+from config import Config, ConfigError, load_config
+from core.llm import AnthropicLanguageModel
+from core.memory import InMemoryConversationMemory
+from core.router import Router
+
+logger = logging.getLogger("emma")
+
+#: The health endpoint is bound to loopback only.  Version 1 exposes nothing to
+#: the network by design: Telegram is reached outbound, via long polling.
+HEALTH_HOST = "127.0.0.1"
+HEALTH_PORT = 8000
+
+#: Single-line, machine-greppable and human-readable: level, timestamp, logger
+#: and event.  systemd captures stdout, so this is what ``journalctl`` shows.
+LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+LOG_DATE_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
+
+
+def configure_logging() -> None:
+    """Send structured logs to stdout and mute the noisiest libraries."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format=LOG_FORMAT,
+        datefmt=LOG_DATE_FORMAT,
+        stream=sys.stdout,
+        force=True,
+    )
+    # These log every single HTTP request at INFO, which under long polling
+    # means a line every few seconds carrying no information at all.  "httpx2"
+    # is the copy of httpx vendored by the anthropic SDK.
+    for noisy in ("httpx", "httpx2", "telegram.ext.Updater"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
+def create_app(config: Config) -> FastAPI:
+    """Build the FastAPI application, wiring every component together.
+
+    This is the composition root: it is the only place where concrete classes
+    are chosen.  Swapping the in-memory store for an SQLite one, or Telegram
+    for another channel, is a change to these few lines and nothing else.
+
+    Args:
+        config: The validated configuration.
+
+    Returns:
+        The application, ready to be served by uvicorn.
+    """
+    system_prompt = config.read_system_prompt()
+    llm = AnthropicLanguageModel(
+        api_key=config.anthropic_api_key,
+        model=config.anthropic_model,
+    )
+    memory = InMemoryConversationMemory(max_messages=config.max_history_messages)
+    router = Router(llm=llm, memory=memory, system_prompt=system_prompt, tools=())
+    telegram = TelegramAdapter(
+        token=config.telegram_bot_token,
+        allowed_user_id=config.telegram_allowed_user_id,
+        router=router,
+    )
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        """Start the Telegram adapter with the server and stop it with it."""
+        logger.info(
+            "starting emma (model=%s, history=%d messages)",
+            config.anthropic_model,
+            config.max_history_messages,
+        )
+        await telegram.start()
+        try:
+            yield
+        finally:
+            logger.info("shutting down")
+            await telegram.stop()
+            await llm.aclose()
+
+    app = FastAPI(
+        title="EMMA",
+        version="0.1.0",
+        summary="Self-hosted personal assistant - text-only v1",
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+    started_at = time.monotonic()
+
+    @app.get("/health")
+    async def health() -> dict[str, object]:
+        """Report that the process is alive and which model it is using."""
+        return {
+            "status": "ok",
+            "model": config.anthropic_model,
+            "uptime_seconds": round(time.monotonic() - started_at, 1),
+        }
+
+    return app
+
+
+def main() -> int:
+    """Load the configuration and serve the application.
+
+    Returns:
+        The process exit code: ``0`` on a clean shutdown, ``2`` when the
+        configuration is unusable.
+    """
+    configure_logging()
+    try:
+        config = load_config()
+    except ConfigError as exc:
+        # No traceback here: a misconfigured .env is a user error, and a wall
+        # of stack frames would only hide the one line that matters.
+        logger.error("configuration error: %s", exc)
+        return 2
+
+    uvicorn.run(
+        create_app(config),
+        host=HEALTH_HOST,
+        port=HEALTH_PORT,
+        log_config=None,  # keep the formatting set by configure_logging()
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

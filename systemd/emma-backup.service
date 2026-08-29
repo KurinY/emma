@@ -1,0 +1,57 @@
+# EMMA - backup job.
+#
+# This unit does nothing on its own: it is started by emma-backup.timer, or
+# by hand when you want a snapshot right now:
+#
+#   sudo systemctl start emma-backup.service
+#   journalctl -u emma-backup.service -n 50
+#
+# Install (see chapter 4 of docs/GUIDA.pdf):
+#   sudo cp systemd/emma-backup.service systemd/emma-backup.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now emma-backup.timer
+#
+# The destination and the rotation depth are read from /opt/emma/.env
+# (BACKUP_DIR, BACKUP_KEEP) by the script itself, not from this file.
+
+[Unit]
+Description=EMMA backup (dated archive with rotation)
+Documentation=file:/opt/emma/docs/GUIDA.pdf
+# Pointless to snapshot a backup disk that is not mounted yet.
+# PATH: the mount point of the backup disk, i.e. BACKUP_DIR in .env.
+After=local-fs.target
+RequiresMountsFor=/mnt/backup
+
+[Service]
+Type=oneshot
+User=emma
+Group=emma
+
+# PATH: installation directory and backup script.
+WorkingDirectory=/opt/emma
+ExecStart=/opt/emma/scripts/backup.sh
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=emma-backup
+
+# A backup that hangs must not sit there forever holding the timer.
+TimeoutStartSec=30min
+
+# --- Hardening --------------------------------------------------------------
+# Same posture as the main service, with one exception: this job has to write.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+# PATH: the destination directory, i.e. BACKUP_DIR in .env. ProtectSystem=strict
+# makes the whole filesystem read-only, so this is the one hole we punch.
+ReadWritePaths=/mnt/backup

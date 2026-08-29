@@ -1,0 +1,1555 @@
+---
+title: "EMMA — Guida completa"
+subtitle: "Assistente personale self-hosted · versione 1, solo testo"
+version: "v0.1.0"
+date: "29 agosto 2026"
+lang: it
+---
+
+# Introduzione
+
+Questa guida porta un server Ubuntu appena installato ad avere EMMA in funzione:
+un assistente personale con cui chatti da Telegram, che gira su hardware tuo e
+che parla con il modello Claude attraverso l'API di Anthropic.
+
+È il manuale completo di riferimento. Il `README.md` del repository è la guida
+rapida in inglese per chi vuole solo provarlo; questa guida è quella da seguire
+per installarlo davvero, capirlo e mantenerlo nel tempo. Seguendola dall'inizio
+alla fine non ti serve cercare informazioni altrove.
+
+**Cosa fa EMMA nella versione 1.** Scrivi al tuo bot Telegram dal telefono. Un
+servizio Python sul tuo server riceve il messaggio, ci aggiunge la conversazione
+recente, chiede una risposta a Claude e te la rimanda. Il bot risponde solo a te.
+Non c'è voce, non ci sono strumenti, la memoria dura finché il processo resta
+acceso. È la fondazione: tutto il resto arriverà sopra questa.
+
+**A chi si rivolge.** A chi sa muoversi in un terminale Linux ma non dà nulla per
+scontato. Ogni comando è scritto per intero e ogni scelta è motivata, perché fra
+sei mesi vorrai sapere non solo *cosa* hai fatto ma *perché*.
+
+**Convenzioni.**
+
+- I comandi preceduti da `sudo` vanno eseguiti da un utente con privilegi
+  amministrativi; gli altri dal tuo utente normale.
+- Dove compare `/opt/emma`, è la directory di installazione: se la cambi, cambiala
+  ovunque (nella guida e nei file in `systemd/`, dove le righe da toccare sono
+  marcate con `# PATH:`).
+- Dove compare `<tuo-account>`, sostituisci il tuo nome utente GitHub.
+- I blocchi marcati **Verifica** dicono cosa devi vedere per essere sicuro che il
+  passo sia andato a buon fine. Non saltarli: è così che si evita di scoprire un
+  errore tre capitoli dopo.
+
+**I sei capitoli.**
+
+1. **Preparazione dell'ambiente** — dal server nudo al sistema pronto.
+2. **Architettura** — com'è fatto EMMA e perché.
+3. **Implementazione** — il codice, file per file.
+4. **Deploy** — configurazione, servizio systemd, primo avvio.
+5. **Utilizzo** — l'uso quotidiano dal telefono e i limiti noti.
+6. **Manutenzione** — log, aggiornamenti, backup, ripristino, problemi comuni.
+
+\newpage
+
+# Capitolo 1 — Preparazione dell'ambiente
+
+## 1.1 Quale Ubuntu, e perché
+
+**Scelta: Ubuntu Server 24.04 LTS (Noble Numbat).**
+
+Le LTS attualmente supportate sono la 24.04 (aprile 2024, supporto standard fino
+ad aprile 2029) e la 26.04, uscita nel 2026 e quindi con la finestra di supporto
+più lunga. Per questo progetto scelgo la 24.04 per tre motivi concreti:
+
+- **è matura.** Ha alle spalle anni di point release: i bug di gioventù su
+  driver, rete e installer sono risolti, e su un vecchio PC riciclato — che è
+  esattamente il tuo caso — la compatibilità hardware già collaudata vale più di
+  qualunque novità.
+- **la documentazione di terze parti è enorme.** Quando qualcosa non funziona,
+  cercando un messaggio d'errore trovi risposte scritte per la 24.04. Su una LTS
+  appena uscita si finisce spesso a tradurre istruzioni pensate per la
+  precedente.
+- **ha Python 3.12**, che soddisfa con margine il requisito 3.11+ del progetto.
+
+La 26.04 LTS è una scelta altrettanto legittima se preferisci il supporto più
+lungo: EMMA ci gira senza modifiche (Python 3.13, anch'esso compatibile). Tutti i
+comandi di questa guida valgono per entrambe. Quello che **non** consiglio è una
+release intermedia non-LTS: nove mesi di supporto significano un aggiornamento
+maggiore quasi ogni anno su una macchina che deve solo stare accesa e funzionare.
+
+**Scarica solo la variante Server**, non la Desktop: niente ambiente grafico
+significa meno RAM occupata, meno pacchetti da aggiornare e meno superficie
+d'attacco. L'immagine è su <https://ubuntu.com/download/server>.
+
+Durante l'installazione:
+
+- crea il tuo utente personale (quello con cui farai `ssh`), non serve altro;
+- **installa OpenSSH server** quando l'installer lo propone: è l'unico modo per
+  amministrare la macchina senza monitor e tastiera attaccati;
+- non installare snap aggiuntivi (Docker, Kubernetes e simili): non servono.
+
+## 1.2 Verifica del punto di partenza
+
+Collegati via SSH e guarda cosa hai:
+
+```bash
+ssh tuo-utente@indirizzo-del-server
+
+lsb_release -a          # versione di Ubuntu
+python3 --version       # deve essere >= 3.11
+free -h                 # memoria disponibile
+df -h /                 # spazio sul disco di sistema
+ip -brief address       # indirizzi di rete
+```
+
+**Verifica.** `python3 --version` deve rispondere `Python 3.12.x` (o superiore) e
+`df -h /` deve mostrare almeno 5 GB liberi. EMMA occupa poche decine di MB,
+ma virtualenv, log e backup vogliono respiro.
+
+## 1.3 Aggiornamento del sistema
+
+Prima di installare qualunque cosa, allinea il sistema:
+
+```bash
+sudo apt update
+sudo apt upgrade -y
+sudo reboot        # solo se l'upgrade ha toccato il kernel
+```
+
+Se `apt` segnala che è richiesto un riavvio (`*** System restart required ***`),
+riavvia adesso: un kernel a metà strada è la causa più stupida di problemi
+successivi.
+
+## 1.4 Pacchetti di sistema
+
+Tutti dai repository ufficiali di Ubuntu. **Non aggiungiamo nessun PPA né
+repository esterno**, e vale la pena dire perché: ogni repository di terze parti
+è un soggetto che può pubblicare pacchetti sulla tua macchina con i privilegi di
+root, e va aggiornato e fidato per anni. Qui non serve: tutto ciò di cui EMMA ha
+bisogno è nei repository ufficiali, e le librerie Python arrivano da PyPI dentro
+un virtualenv isolato, senza toccare il Python di sistema.
+
+```bash
+sudo apt install -y \
+    python3 \
+    python3-venv \
+    python3-pip \
+    git \
+    curl \
+    ca-certificates \
+    tar \
+    gzip
+```
+
+A cosa serve ciascuno:
+
+| Pacchetto | Perché |
+| --- | --- |
+| `python3` | l'interprete; già presente, lo elenchiamo per completezza |
+| `python3-venv` | crea l'ambiente virtuale isolato del progetto |
+| `python3-pip` | installa le dipendenze dentro quell'ambiente |
+| `git` | scarica il codice e permette di tornare a una versione precedente |
+| `curl` | verifiche manuali (l'endpoint `/health`, la connettività) |
+| `ca-certificates` | certificati radice per le connessioni HTTPS verso Anthropic e Telegram |
+| `tar`, `gzip` | usati da `scripts/backup.sh` (di norma già installati) |
+
+**Verifica.**
+
+```bash
+python3 -m venv --help > /dev/null && echo "venv ok"
+git --version
+curl -sI https://api.anthropic.com | head -1
+```
+
+L'ultimo comando deve restituire una riga `HTTP/...`: qualunque risposta va bene,
+significa che il server raggiunge Internet in HTTPS. Se non risponde nulla, il
+problema è di rete o di DNS e va risolto prima di proseguire.
+
+## 1.5 Utente di sistema dedicato
+
+EMMA non deve girare come te, e tantomeno come root. Le va creato un utente
+apposta, **senza possibilità di login e senza privilegi**: se un giorno una
+skill avrà un bug o una dipendenza si rivelerà malevola, il danno resta confinato
+a ciò che quell'utente può toccare — cioè quasi nulla.
+
+```bash
+sudo useradd --system --create-home --home-dir /opt/emma --shell /usr/sbin/nologin emma
+```
+
+Cosa fanno le opzioni:
+
+- `--system`: utente di servizio, con UID basso, escluso dalle liste di login;
+- `--create-home --home-dir /opt/emma`: la home coincide con la directory di
+  installazione, così il servizio ha un posto suo dove stare;
+- `--shell /usr/sbin/nologin`: nessuno può fare login come `emma`, nemmeno con
+  la password giusta, perché una password non esiste.
+
+**Verifica.**
+
+```bash
+id emma
+# uid=999(emma) gid=999(emma) groups=999(emma)
+sudo -u emma whoami
+# emma
+```
+
+## 1.6 Directory di installazione e permessi
+
+```bash
+sudo mkdir -p /opt/emma
+sudo chown emma:emma /opt/emma
+sudo chmod 750 /opt/emma
+```
+
+`750` significa: `emma` legge e scrive, il gruppo `emma` legge, tutti gli altri
+utenti della macchina non vedono nemmeno il contenuto. Dato che dentro finirà il
+file `.env` con la tua chiave API, è il minimo.
+
+Per lavorare comodamente aggiungiti al gruppo `emma`:
+
+```bash
+sudo usermod -aG emma $USER
+newgrp emma        # applica il nuovo gruppo alla sessione corrente
+```
+
+Senza questo passaggio dovresti anteporre `sudo -u emma` a ogni comando dentro
+`/opt/emma`. Nota che `newgrp` vale solo per la shell corrente: alla prossima
+connessione SSH il gruppo sarà già attivo da solo.
+
+## 1.7 Il secondo disco per i backup
+
+Tu ragioni in termini di "disco D", che su Windows è una lettera; su Linux un
+secondo disco fisico è un dispositivo da montare in un punto dell'albero delle
+directory. Il risultato è lo stesso — dati su un disco diverso da quello di
+sistema — ma la procedura è questa.
+
+**Se non hai un secondo disco**, puoi saltare al capitolo 2 e lasciare
+`BACKUP_DIR` sul disco di sistema: i backup funzioneranno lo stesso e ti
+proteggeranno da errori tuoi, ma non dal guasto del disco. È un compromesso da
+fare consapevolmente, e da correggere appena hai un disco in più.
+
+### 1.7.1 Identificare il disco
+
+```bash
+lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL
+```
+
+Esempio di output:
+
+```
+NAME   SIZE TYPE FSTYPE MOUNTPOINT MODEL
+sda    240G disk                   KINGSTON_SA400
+├─sda1   1G part vfat   /boot/efi
+└─sda2 239G part ext4   /
+sdb    500G disk                   WDC_WD5000AAKX
+```
+
+Qui `sda` è il disco di sistema (contiene `/`) e `sdb` è il secondo disco,
+ancora senza filesystem e senza punto di mount. **Controlla due volte la lettera
+prima di proseguire**: i comandi che seguono cancellano il contenuto del disco
+che indichi.
+
+### 1.7.2 Partizionare e formattare
+
+> **Attenzione: i due comandi seguenti distruggono tutti i dati su `/dev/sdb`.**
+> Se il disco contiene qualcosa che ti serve, copialo altrove prima.
+
+```bash
+sudo parted /dev/sdb --script mklabel gpt mkpart primary ext4 0% 100%
+sudo mkfs.ext4 -L backup /dev/sdb1
+```
+
+`ext4` è la scelta giusta qui: stabile, supportata ovunque, senza opzioni da
+capire. L'etichetta `backup` serve fra un attimo.
+
+### 1.7.3 Montarlo in modo permanente
+
+Un `mount` a mano sparisce al riavvio. Perché sia permanente va scritto in
+`/etc/fstab`, e va scritto usando l'**UUID** del filesystem, non `/dev/sdb1`: i
+nomi dei dispositivi possono cambiare fra un avvio e l'altro se aggiungi o togli
+un disco, l'UUID no.
+
+```bash
+sudo mkdir -p /mnt/backup
+sudo blkid /dev/sdb1
+# /dev/sdb1: LABEL="backup" UUID="1a2b3c4d-..." TYPE="ext4"
+```
+
+Copia l'UUID e aggiungi la riga a `/etc/fstab`:
+
+```bash
+sudo cp /etc/fstab /etc/fstab.bak        # rete di sicurezza
+echo 'UUID=1a2b3c4d-...  /mnt/backup  ext4  defaults,nofail  0  2' | sudo tee -a /etc/fstab
+```
+
+L'opzione **`nofail` è importante**: senza di essa, se un giorno il disco si
+guasta o lo stacchi, il server non completa l'avvio e resta bloccato in emergency
+mode — con l'assistente spento per un problema di backup. Con `nofail` prosegue e
+il backup fallisce con un messaggio chiaro nei log, che è il comportamento giusto.
+
+```bash
+sudo systemctl daemon-reload
+sudo mount -a
+```
+
+**Verifica.**
+
+```bash
+findmnt /mnt/backup
+df -h /mnt/backup
+```
+
+Se `mount -a` non dà errori e `findmnt` mostra il disco, la riga di `fstab` è
+corretta e il montaggio sopravviverà al riavvio. Un errore qui va risolto
+adesso: un `fstab` sbagliato impedisce l'avvio della macchina.
+
+### 1.7.4 La directory dei backup
+
+```bash
+sudo mkdir -p /mnt/backup/emma
+sudo chown emma:emma /mnt/backup/emma
+sudo chmod 700 /mnt/backup/emma
+```
+
+`700` perché gli archivi contengono il `.env`, quindi la tua chiave API: solo
+l'utente `emma` deve poterli leggere. Questo percorso è quello che scriverai in
+`BACKUP_DIR` nel capitolo 4.
+
+## 1.8 Firewall
+
+EMMA **non espone nulla in ingresso**: parla con Telegram e con Anthropic aprendo
+connessioni in uscita, e l'endpoint `/health` è in ascolto solo su `127.0.0.1`,
+raggiungibile unicamente dalla macchina stessa. Il firewall quindi non deve
+aprire niente per EMMA: deve solo lasciarti entrare in SSH.
+
+```bash
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow OpenSSH
+sudo ufw enable
+```
+
+> **Prima di dare `ufw enable`, assicurati che `sudo ufw allow OpenSSH` sia
+> andato a buon fine.** Attivare il firewall senza aver aperto SSH ti chiude
+> fuori dalla macchina, e per rientrare serve monitor e tastiera.
+
+**Verifica.**
+
+```bash
+sudo ufw status verbose
+```
+
+Devi vedere `Default: deny (incoming), allow (outgoing)` e una sola regola
+consentita, `22/tcp (OpenSSH)`. È esattamente la configurazione coerente con
+l'architettura: nessuna porta aperta, nessun webhook, nessun certificato da
+gestire.
+
+## 1.9 Le credenziali che ti servono
+
+Prima del deploy procurati questi tre valori. Tienili da parte: li scriverai nel
+`.env` al capitolo 4.
+
+**Chiave API Anthropic.** Su <https://console.anthropic.com>, sezione *API Keys*,
+crea una chiave. Comincia con `sk-ant-`. Viene mostrata **una volta sola**:
+copiala subito. Ricorda anche di impostare un limite di spesa mensile nella
+sezione fatturazione — è la protezione più semplice contro una sorpresa.
+
+**Token del bot Telegram.** Dal telefono, scrivi a
+[@BotFather](https://t.me/BotFather):
+
+1. `/newbot`
+2. scegli un nome visualizzato (per esempio `Emma`)
+3. scegli uno username che finisca per `bot` (per esempio `emma_di_matteo_bot`)
+
+BotFather risponde con un token nella forma `123456789:AAH...`. **È una
+credenziale**: chi ce l'ha controlla il bot. Non finisce mai in Git, mai in un
+messaggio, mai in un log.
+
+**Il tuo user ID Telegram.** Non è lo username con la chiocciola, è un numero.
+Scrivi a [@userinfobot](https://t.me/userinfobot): ti risponde con il tuo `Id`.
+Quel numero va in `TELEGRAM_ALLOWED_USER_ID` ed è ciò che fa rispondere il bot a
+te e a nessun altro.
+
+\newpage
+
+# Capitolo 2 — Architettura
+
+## 2.1 Il quadro d'insieme
+
+```
+     TU                      IL TUO SERVER UBUNTU                    INTERNET
+                     ┌──────────────────────────────────────┐
+ ┌───────────┐       │  systemd  ─ avvia, sorveglia, riavvia │
+ │ Telegram  │       │     │                                 │
+ │ sul       │       │     ▼                                 │
+ │ telefono  │       │  ┌────────────────────────────────┐   │
+ └─────┬─────┘       │  │ processo unico, un event loop  │   │
+       │             │  │                                │   │
+       │             │  │  adapters/telegram.py          │   │
+       │  long       │  │    · long polling              │   │      ┌──────────┐
+       └─polling─────┼─▶│    · whitelist utente          │   │      │ Telegram │
+         (in uscita) │  │    · Update → richiesta interna│◀──┼─────▶│   API    │
+                     │  │           │            ▲       │   │      └──────────┘
+                     │  │           ▼            │       │   │
+                     │  │  core/router.py                │   │
+                     │  │    · legge la memoria          │   │
+                     │  │    · chiama il modello         │   │      ┌──────────┐
+                     │  │    · ciclo tool-use    ────────┼───┼─────▶│ Anthropic│
+                     │  │    · scrive la memoria         │◀──┼──────│   API    │
+                     │  │       │            │           │   │      └──────────┘
+                     │  │       ▼            ▼           │   │
+                     │  │  core/memory.py  core/llm.py   │   │
+                     │  │   finestra        retry e      │   │
+                     │  │   scorrevole      backoff      │   │
+                     │  │                                │   │
+                     │  │  FastAPI ─ GET /health         │   │
+                     │  │     (solo su 127.0.0.1)        │   │
+                     │  └────────────────────────────────┘   │
+                     │                                       │
+                     │  /opt/emma/.env  ─ chiavi e opzioni   │
+                     │  /mnt/backup/emma ─ archivi datati    │
+                     └──────────────────────────────────────┘
+
+     Nessuna porta in ingresso. Tutte le frecce verso Internet partono da dentro.
+```
+
+## 2.2 Il percorso di un messaggio
+
+```
+ tu scrivi "che tempo fa?"
+        │
+        ▼
+ [1] adapters/telegram.py   l'update arriva dal long polling
+        │                   ├─ il mittente è in whitelist?  no → ignora, logga
+        │                   └─ sì → AssistantRequest(text, user_id, conversation_id)
+        ▼
+ [2] core/router.py         legge la cronologia da core/memory.py
+        │                   e costruisce il contesto della richiesta
+        ▼
+ [3] core/llm.py            chiama l'API Anthropic
+        │                   ├─ errore → riprova (1s, poi 2s), max 3 tentativi
+        │                   └─ tutti falliti → LLMUnavailableError
+        ▼
+ [4] core/router.py         il modello ha chiesto un tool?
+        │                   ├─ sì  → esegui, rimanda il risultato, torna a [3]
+        │                   └─ no  → questa è la risposta finale
+        ▼
+ [5] core/memory.py         salva domanda e risposta, applica la finestra
+        ▼
+ [6] adapters/telegram.py   AssistantResponse → messaggio Telegram (spezzato
+        │                   in blocchi se supera il limite di 4096 caratteri)
+        ▼
+ la risposta compare sul telefono
+
+ Se [3] fallisce del tutto, il router non solleva l'errore: risponde
+ "Non riesco a contattare il cervello in questo momento, riprova tra poco",
+ non salva nulla in memoria, e il processo resta vivo.
+```
+
+## 2.3 Pattern adapter: perché `core/` non sa cosa sia Telegram
+
+È la decisione strutturale più importante del progetto. La regola è una sola:
+**nessun file sotto `core/` importa Telegram, e nessun concetto di Telegram
+(chat id, update, formattazione dei messaggi) entra nel core.**
+
+Il confine è materializzato da due oggetti minuscoli in `core/router.py`:
+
+```python
+AssistantRequest(text: str, user_id: str, conversation_id: str)
+AssistantResponse(text: str, degraded: bool = False)
+```
+
+L'adapter traduce in entrambe le direzioni: da `Update` di Telegram a
+`AssistantRequest`, e da `AssistantResponse` a messaggio inviato in chat.
+
+Perché conta: quando arriverà il satellite vocale sul Raspberry, la voce
+trascritta diventerà un `AssistantRequest` con lo stesso identico contratto. Il
+router, la memoria e il client del modello **non cambieranno di una riga**. Se
+invece il router leggesse `update.message.chat.id`, ogni nuovo canale
+richiederebbe di rimetterci le mani, e ogni modifica rischierebbe di rompere il
+canale esistente.
+
+Il costo di questa disciplina è una decina di righe di conversione. Il beneficio
+è che le fasi 2, 3 e 4 della roadmap si costruiscono sopra invece che dentro.
+
+## 2.4 Router agentico: il ciclo che oggi gira a vuoto
+
+Un assistente che sa solo rispondere a parole è un chatbot. Uno che può *fare*
+cose deve poter chiamare degli strumenti, guardare cosa hanno restituito e
+decidere il passo successivo. Il protocollo dell'API Anthropic per farlo si
+chiama tool-use, e ha la forma di un ciclo:
+
+```
+  costruisci il contesto
+          │
+          ▼
+  ┌──▶ chiama il modello
+  │       │
+  │       ├─ stop_reason == "tool_use"? ──┐
+  │       │                               │
+  │       │                               ▼
+  │       │                    esegui i tool richiesti,
+  └───────┴──────────────────  rimanda i risultati
+          │
+          └─ altrimenti → questa è la risposta finale
+```
+
+Nella v1 la lista dei tool è **vuota**: il modello non può chiedere nulla, quindi
+il ciclo esce sempre al primo giro. Il codice però c'è tutto, ed è testato.
+Aggiungere una skill domani significa scrivere una classe con quattro attributi
+e passarla al router:
+
+```python
+class Clock:
+    name = "current_time"
+    description = "Restituisce l'ora corrente."
+    input_schema = {"type": "object", "properties": {}}
+
+    async def run(self, arguments: dict) -> str:
+        return datetime.now().strftime("%H:%M")
+
+router = Router(llm=llm, memory=memory, system_prompt=prompt, tools=(Clock(),))
+```
+
+`core/router.py` non si tocca. Era questo l'obiettivo.
+
+Due protezioni sono già dentro il ciclo, perché senza di esse sarebbe fragile: un
+tetto al numero di round (`max_tool_iterations`, cinque), altrimenti un modello
+che continua a chiedere strumenti genererebbe una sequenza illimitata di chiamate
+a pagamento; e il contenimento degli errori dei tool, che vengono restituiti al
+modello come risultato con `is_error` invece di propagarsi — una skill difettosa
+non deve poter far cadere il turno.
+
+## 2.5 Memoria dietro interfaccia
+
+`core/memory.py` definisce un'interfaccia astratta con tre operazioni:
+
+```python
+async def get_history(conversation_id) -> list[StoredMessage]
+async def append(conversation_id, message) -> None
+async def prune(conversation_id) -> None
+```
+
+e una sola implementazione, `InMemoryConversationMemory`: un dizionario in RAM con
+una finestra scorrevole di `MAX_HISTORY_MESSAGES` messaggi per conversazione.
+
+Perché un'interfaccia per una singola implementazione? Perché la seconda è già in
+programma. Quando la memoria diventerà SQLite, sarà una nuova classe che
+implementa gli stessi tre metodi, scelta in una riga di `main.py`. Il router non
+saprà mai la differenza — e i test del router, che usano la memoria vera,
+continueranno a valere.
+
+Due dettagli non ovvi dell'implementazione attuale:
+
+- **i metodi sono asincroni** anche se oggi non fanno I/O. Un database lo farà, e
+  cambiare la firma da sincrona ad asincrona più avanti significherebbe toccare
+  il router: esattamente ciò che l'interfaccia esiste per evitare.
+- **la finestra non comincia mai con un messaggio dell'assistente.** L'API
+  Messages rifiuta una conversazione che non parte dall'utente; se il taglio
+  lasciasse in testa una risposta, viene scartato un messaggio in più. Senza
+  questa regola, con un valore dispari di `MAX_HISTORY_MESSAGES` il sistema si
+  romperebbe a caso dopo qualche scambio.
+
+## 2.6 Resilienza: tre livelli
+
+L'assistente deve fallire bene. Ci sono tre reti di sicurezza sovrapposte,
+ciascuna per un tipo diverso di guasto.
+
+**Livello 1 — la chiamata al modello** (`core/llm.py`). Tre tentativi con attesa
+esponenziale: subito, dopo 1 secondo, dopo 2. Assorbe i disturbi brevi — un
+pacchetto perso, un 529 di sovraccarico dell'API — senza che tu te ne accorga. I
+retry interni del SDK sono disattivati (`max_retries=0`) perché altrimenti i
+tentativi reali sarebbero nove, con attese moltiplicate.
+
+**Livello 2 — il turno** (`core/router.py`). Se tutti i tentativi falliscono,
+l'eccezione non risale: diventa una risposta di cortesia. Ricevi *"Non riesco a
+contattare il cervello in questo momento, riprova tra poco"*, il processo resta
+vivo e il turno fallito non viene salvato in memoria — altrimenti la conversazione
+si riempirebbe di scuse che il modello poi cercherebbe di spiegare.
+
+**Livello 3 — il processo** (`systemd/emma.service`). Se il processo muore
+davvero — un bug non previsto, l'OOM killer, un riavvio della macchina —
+`Restart=always` lo riporta su dopo 5 secondi. Con un limite: cinque fallimenti
+in cinque minuti e systemd si ferma, perché a quel punto la causa non è
+transitoria (tipicamente un `.env` sbagliato) e continuare a riavviare
+nasconderebbe il problema invece di risolverlo.
+
+## 2.7 Perché FastAPI se non c'è niente da esporre
+
+Domanda legittima: il bot funziona in long polling, non riceve richieste HTTP.
+Perché un web server?
+
+Due motivi, uno immediato e uno futuro. L'immediato è l'endpoint `/health` su
+`127.0.0.1:8000`: un `curl` dice se il processo è vivo e quale modello sta usando,
+senza dover leggere i log. Il futuro è il satellite vocale sul Raspberry, che
+dovrà parlare con il nodo centrale via HTTP: quando arriverà, il server ci sarà
+già e l'avvio non andrà ripensato.
+
+FastAPI e il polling di Telegram condividono **un solo event loop**: uvicorn
+possiede il loop, e l'adapter Telegram viene avviato e fermato dal *lifespan*
+dell'applicazione. Questo significa che un `systemctl stop emma` chiude il polling
+in modo pulito invece di ucciderlo a metà di un update.
+
+Nel `REVISIONE.md` trovi la discussione critica di questa scelta, insieme
+all'alternativa senza web server.
+
+## 2.8 Il modello scelto
+
+Il default è **Claude Sonnet 4.6** (`claude-sonnet-4-6`), che offre il miglior
+equilibrio tra qualità e costo per un assistente conversazionale personale:
+notevolmente più capace di Haiku, abbastanza veloce per la chat e abbastanza
+economico per un uso personale con traffico leggero.
+
+`ANTHROPIC_MODEL` accetta qualunque identificativo valido — è una riga di `.env`
+e un riavvio del servizio, senza modifiche al codice. Se vuoi la massima
+velocità a costo minimo usa `claude-sonnet-4-6`; se vuoi la massima
+capacità usa `claude-opus-4-7`.
+
+\newpage
+
+# Capitolo 3 — Implementazione
+
+Questo capitolo spiega il codice file per file: a cosa serve ciascun modulo, come
+è fatto e perché è fatto così. Serve a te per mantenerlo e a chi vorrà
+contribuire per orientarsi.
+
+## 3.1 La mappa
+
+```
+emma/
+├── main.py                    avvio: FastAPI + polling nello stesso event loop
+├── config.py                  legge e valida .env
+├── adapters/
+│   └── telegram.py            l'unico file che sa cos'è Telegram
+├── core/
+│   ├── router.py              orchestratore: contesto → modello → tool → risposta
+│   ├── llm.py                 client Anthropic, retry e backoff
+│   └── memory.py              interfaccia memoria + implementazione in RAM
+├── prompts/
+│   └── system_prompt.txt      la personalità di EMMA
+├── scripts/                   backup sul server (bash) e sul PC di sviluppo (PowerShell)
+├── systemd/                   servizio e timer di backup
+├── tests/                     suite pytest, interamente offline
+└── docs/                      questa guida
+```
+
+La dipendenza va sempre nella stessa direzione: `main.py` conosce tutti,
+`adapters/` conosce `core/`, **`core/` non conosce nessuno** se non sé stesso.
+
+## 3.2 `config.py` — la configurazione
+
+Espone due cose: la dataclass immutabile `Config` e la funzione `load_config()`,
+unico modo supportato per costruirla.
+
+Il principio è **fallire subito e con chiarezza**. Ogni variabile obbligatoria
+mancante, ogni numero malformato, ogni file di personalità illeggibile solleva un
+`ConfigError` che nomina la variabile colpevole. Se il processo supera l'avvio, la
+configurazione è valida e nessun altro modulo deve più controllarla.
+
+Dettagli che vale la pena conoscere:
+
+- **le variabili d'ambiente reali vincono sul `.env`** (`override=False`). È ciò
+  che permette a systemd, o a un test, di sovrascrivere una singola impostazione
+  senza modificare file.
+- **i percorsi relativi sono ancorati alla directory del progetto**, non alla
+  working directory: `SYSTEM_PROMPT_PATH=prompts/system_prompt.txt` funziona
+  identico che tu lanci il processo da `/opt/emma` o da `/`.
+- **`BACKUP_DIR` e `BACKUP_KEEP` non sono usate dall'applicazione** — le legge
+  `scripts/backup.sh` per conto proprio. Vengono validate qui lo stesso, così un
+  `BACKUP_KEEP=zero` lo scopri all'avvio del servizio e non alle 3:30 di notte.
+- **il file di personalità viene letto all'avvio** apposta, per trasformare un
+  percorso sbagliato in un errore di configurazione invece che in una sorpresa al
+  primo messaggio.
+
+## 3.3 `core/memory.py` — la memoria
+
+`ConversationMemory` è la classe astratta con i tre metodi visti al capitolo 2.
+`StoredMessage` è la coppia ruolo/testo che ci viaggia dentro.
+
+`InMemoryConversationMemory` la implementa con un dizionario di liste. Tre scelte
+implementative:
+
+- **un `asyncio.Lock` protegge le sequenze leggi-modifica-scrivi.** PTB può
+  eseguire due handler in concorrenza, e senza il lock due messaggi ravvicinati
+  potrebbero corrompere la finestra.
+- **`get_history` restituisce sempre una copia**, così chi la riceve può
+  manipolarla senza modificare per sbaglio lo stato condiviso.
+- **`prune` è idempotente**: chiamarlo due volte di fila non cambia niente.
+  Serve perché venga invocato liberamente, senza doversi chiedere se è già stato
+  fatto.
+
+Il limite dichiarato: tutto vive in RAM, quindi un riavvio del servizio azzera le
+conversazioni. È il primo pezzo che verrà sostituito, nella v0.2.
+
+## 3.4 `core/llm.py` — il client del modello
+
+È l'unico file che importa `anthropic`. Fa tre cose.
+
+**Nasconde il SDK.** Le risposte vengono convertite in tipi nostri —
+`TextBlock` e `ToolUseBlock` dentro un `LLMResponse` — così il router non dipende
+dagli oggetti del SDK. I blocchi di tipo sconosciuto vengono ignorati invece di
+sollevare un errore: un'aggiunta futura all'API non deve poter fermare
+l'assistente in funzione.
+
+**Applica la politica di retry.** Tre tentativi, attesa 1s e 2s, timeout di 60
+secondi per richiesta. Ogni tentativo fallito produce una riga di log con il tipo
+di errore; il successo ne produce una con `stop_reason` e i token consumati in
+ingresso e in uscita — è da lì che si capisce quanto costa davvero l'assistente.
+
+**Traduce il fallimento definitivo** in `LLMUnavailableError`, che è ciò che il
+router intercetta per rispondere con cortesia.
+
+Un metodo merita attenzione: `to_assistant_message()`. L'API Messages è
+*stateless*, quindi per continuare un turno agentico bisogna rimandare la risposta
+precedente del modello parola per parola, blocchi di tool compresi. Quel metodo la
+ricostruisce nel formato giusto.
+
+## 3.5 `core/router.py` — l'orchestratore
+
+Il cuore. Contiene gli oggetti di confine (`AssistantRequest`,
+`AssistantResponse`), il protocollo `Tool` e la classe `Router`.
+
+`handle()` esegue un turno completo e **non solleva mai** eccezioni dovute al
+modello o a un tool: qualunque guasto diventa una risposta degradata ma educata.
+I tre messaggi di fallback (modello irraggiungibile, risposta vuota, troppi
+passaggi) sono costanti in cima al file — sono le uniche stringhe italiane del
+codice, perché sono le uniche che leggi tu e non un programmatore.
+
+`_run_agentic_loop()` è il ciclo tool-use. `_execute_tool()` esegue un singolo
+strumento e ne cattura le eccezioni, restituendole al modello come risultato
+d'errore.
+
+Una regola di comportamento che vale la pena conoscere: **i turni degradati non
+vengono salvati in memoria.** Se il modello era irraggiungibile, la tua domanda e
+la risposta di cortesia spariscono, così il messaggio successivo riparte da una
+cronologia pulita invece che da una scusa.
+
+## 3.6 `adapters/telegram.py` — il canale
+
+Costruisce l'`Application` di `python-telegram-bot`, registra un solo handler per
+i messaggi di testo e un gestore di errori che logga qualunque eccezione sfugga,
+tenendo il bot in piedi.
+
+Punti da conoscere:
+
+- **la whitelist è un controllo esplicito nell'handler**, non un filtro di PTB,
+  perché così un tentativo da parte di uno sconosciuto lascia una riga WARNING
+  nei log. Se qualcuno trova il tuo bot, te ne accorgi.
+- **`drop_pending_updates=True` all'avvio.** Dopo un riavvio ricevi un assistente
+  vivo, non una raffica di risposte a domande di tre ore prima.
+- **le risposte lunghe vengono spezzate.** Telegram rifiuta i messaggi oltre 4096
+  caratteri; il taglio preferisce un a capo vicino al limite, per non spezzare
+  righe e paragrafi a metà.
+- **l'indicatore "sta scrivendo"** viene inviato prima di chiamare il modello,
+  così i due secondi di attesa non sembrano un silenzio.
+- **i comandi (`/start` e simili) sono ignorati** nella v1. È una semplificazione
+  voluta: l'unica interazione è scrivere in linguaggio naturale.
+
+## 3.7 `main.py` — l'avvio
+
+È il *composition root*: l'unico punto in cui si scelgono le classi concrete.
+
+```python
+llm      = AnthropicLanguageModel(...)          # ← qui si cambia modello
+memory   = InMemoryConversationMemory(...)      # ← qui arriverà SQLite
+router   = Router(llm, memory, prompt, tools=())# ← qui si registrano le skill
+telegram = TelegramAdapter(token, user_id, router)
+```
+
+Sostituire un componente è una riga in questo file. È il posto giusto in cui
+guardare per capire come è montato il sistema.
+
+Il *lifespan* di FastAPI avvia il polling all'avvio del server e lo ferma allo
+spegnimento, chiudendo anche il pool di connessioni HTTP verso Anthropic. Il
+logging è configurato una volta sola su stdout, nel formato
+`timestamp | LIVELLO | logger | messaggio`, con i logger delle librerie HTTP
+silenziati: sotto long polling emetterebbero una riga ogni pochi secondi senza
+dire nulla.
+
+`main()` restituisce `2` se la configurazione non è valida, e logga l'errore senza
+traceback: un `.env` sbagliato è un errore d'uso, e trenta righe di stack
+nasconderebbero l'unica che conta.
+
+## 3.8 `tests/` — la suite
+
+Ventuno test, tutti offline. Il modello è sostituito da `ScriptedModel`, un finto
+client che restituisce risposte preparate e registra cosa gli è stato chiesto:
+implementa la stessa interfaccia del client vero, quindi verifica il contratto
+reale.
+
+Cosa coprono: il turno semplice; il riporto della cronologia; l'isolamento fra
+conversazioni; il ciclo tool completo con verifica del formato dei
+`tool_result`; il tool sconosciuto; il tool che esplode; il tetto ai round; il
+modello irraggiungibile; la risposta vuota; il fatto che un turno fallito non
+inquina il successivo; e per la memoria, la finestra scorrevole, la regola del
+primo messaggio utente, l'idempotenza di `prune` e la copia difensiva.
+
+Non puntano alla copertura totale: puntano ai punti in cui una regressione
+sarebbe silenziosa.
+
+```bash
+pytest          # nella directory del progetto, con il virtualenv attivo
+```
+
+\newpage
+
+# Capitolo 4 — Deploy
+
+Da qui in avanti si lavora sul server, con l'ambiente preparato al capitolo 1.
+
+## 4.1 Il repository su GitHub
+
+Il progetto nasce come repository Git. Sul PC di sviluppo Windows, dalla cartella
+del progetto:
+
+```powershell
+git init
+git add .
+git commit -m "initial commit: EMMA v0.1.0, text-only assistant"
+git tag -a v0.1.0 -m "v0.1.0 - first working release"
+```
+
+Crea poi un repository **privato** su GitHub (lo renderai pubblico tu al momento
+della release) e collegalo:
+
+```powershell
+git remote add origin https://github.com/<tuo-account>/emma.git
+git branch -M main
+git push -u origin main --tags
+```
+
+**Verifica.** Su GitHub devi vedere i file e **non** devi vedere `.env`. Se lo
+vedi, fermati: il file è stato committato, la chiave è compromessa e va revocata
+subito su console.anthropic.com prima di qualunque altra cosa.
+
+## 4.2 Scaricare il codice sul server
+
+```bash
+sudo -u emma git clone https://github.com/<tuo-account>/emma.git /opt/emma
+cd /opt/emma
+```
+
+Se la directory `/opt/emma` esiste già ed è vuota (l'abbiamo creata al capitolo
+1), `git clone` la usa senza problemi. Se protesta perché non è vuota, clona in
+`/tmp` e sposta il contenuto.
+
+Con repository privato, `git clone` chiede le credenziali: usa un *personal
+access token* GitHub al posto della password, oppure una chiave SSH di deploy.
+Il token va salvato con `git config --global credential.helper store` **solo** se
+accetti che finisca in chiaro in `~/.git-credentials` dell'utente `emma`.
+
+## 4.3 L'ambiente virtuale
+
+```bash
+sudo -u emma python3 -m venv /opt/emma/.venv
+sudo -u emma /opt/emma/.venv/bin/pip install --upgrade pip
+sudo -u emma /opt/emma/.venv/bin/pip install -r /opt/emma/requirements.txt
+```
+
+Il virtualenv isola le dipendenze di EMMA dal Python di sistema: nessun rischio di
+rompere strumenti di Ubuntu che usano Python, e nessun bisogno di
+`--break-system-packages`.
+
+**Verifica.**
+
+```bash
+sudo -u emma /opt/emma/.venv/bin/pip list | grep -Ei "anthropic|telegram|fastapi|uvicorn|dotenv"
+```
+
+Devi vedere le cinque librerie con le versioni esatte scritte in
+`requirements.txt`.
+
+## 4.4 Il file `.env`
+
+```bash
+sudo -u emma cp /opt/emma/.env.example /opt/emma/.env
+sudo -u emma chmod 600 /opt/emma/.env
+sudo -u emma nano /opt/emma/.env
+```
+
+`600` significa: solo l'utente `emma` può leggerlo e scriverlo. Nessun altro
+utente della macchina, nemmeno il tuo, può vedere la chiave API senza `sudo`.
+
+Compila i tre valori obbligatori con le credenziali del paragrafo 1.9:
+
+```ini
+ANTHROPIC_API_KEY=sk-ant-...            # la tua chiave
+TELEGRAM_BOT_TOKEN=123456789:AAH...     # il token di BotFather
+TELEGRAM_ALLOWED_USER_ID=123456789      # il tuo ID numerico
+```
+
+E controlla gli opzionali, che hanno già default sensati:
+
+| Variabile | Default | Significato |
+| --- | --- | --- |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | il modello usato per ogni risposta |
+| `MAX_HISTORY_MESSAGES` | `20` | messaggi tenuti nella finestra di contesto |
+| `SYSTEM_PROMPT_PATH` | `prompts/system_prompt.txt` | il file con la personalità |
+| `BACKUP_DIR` | `/mnt/backup/emma` | dove finiscono gli archivi |
+| `BACKUP_KEEP` | `14` | quanti archivi conservare |
+
+Se al capitolo 1.7 hai montato il disco su un percorso diverso, correggi
+`BACKUP_DIR` adesso.
+
+**Verifica.**
+
+```bash
+ls -l /opt/emma/.env
+# -rw------- 1 emma emma ... /opt/emma/.env
+git -C /opt/emma status --short
+# non deve comparire .env
+```
+
+## 4.5 Primo avvio a mano
+
+Prima di installare il servizio, prova che tutto funzioni in primo piano, dove i
+messaggi d'errore si leggono subito:
+
+```bash
+cd /opt/emma
+sudo -u emma /opt/emma/.venv/bin/python main.py
+```
+
+Devi vedere qualcosa come:
+
+```
+2026-08-29T14:02:10+0200 | INFO     | emma | starting emma (model=claude-sonnet-4-6, history=20 messages)
+2026-08-29T14:02:11+0200 | INFO     | adapters.telegram | telegram adapter started (long polling)
+INFO:     Uvicorn running on http://127.0.0.1:8000
+```
+
+**Ora la prova vera: prendi il telefono e scrivi al tuo bot.** Entro un paio di
+secondi devi ricevere una risposta, e sul terminale devono comparire le righe
+`incoming message from chat_id=...` e `answered chat_id=...`.
+
+Se non succede nulla, salta al paragrafo 6.7: i tre motivi più comuni sono un
+token sbagliato, un `TELEGRAM_ALLOWED_USER_ID` che non è il tuo, e l'aver scritto
+a un bot diverso da quello del token.
+
+Ferma il processo con `Ctrl+C`.
+
+## 4.6 Il servizio systemd
+
+```bash
+sudo cp /opt/emma/systemd/emma.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now emma.service
+```
+
+`enable --now` fa due cose insieme: avvia il servizio adesso e lo configura per
+partire da solo a ogni avvio della macchina.
+
+Se hai installato EMMA in un percorso diverso da `/opt/emma`, prima di copiare il
+file modifica le righe marcate `# PATH:` e la coppia `User=`/`Group=`.
+
+**Verifica.**
+
+```bash
+systemctl status emma.service
+```
+
+Devi leggere `Active: active (running)`. Poi:
+
+```bash
+curl -s http://127.0.0.1:8000/health
+# {"status":"ok","model":"claude-sonnet-4-6","uptime_seconds":12.4}
+
+journalctl -u emma -n 30 --no-pager
+```
+
+E di nuovo la prova che conta: scrivi al bot dal telefono e verifica di ricevere
+risposta.
+
+**Verifica del riavvio automatico** (è un criterio di accettazione, vale la pena
+provarlo davvero):
+
+```bash
+sudo systemctl kill -s SIGKILL emma.service   # simula un crash brutale
+sleep 8
+systemctl status emma.service                 # deve essere di nuovo running
+```
+
+Nei log vedrai la ripartenza. Se dopo dieci secondi il servizio non è tornato su,
+qualcosa nella unit non va: controlla `journalctl -u emma -n 50`.
+
+## 4.7 Il timer di backup
+
+```bash
+sudo cp /opt/emma/systemd/emma-backup.service /etc/systemd/system/
+sudo cp /opt/emma/systemd/emma-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now emma-backup.timer
+```
+
+Se `BACKUP_DIR` non è sotto `/mnt/backup`, correggi `ReadWritePaths=` e
+`RequiresMountsFor=` in `emma-backup.service` (righe marcate `# PATH:`) prima di
+copiarlo: con `ProtectSystem=strict` il filesystem è in sola lettura per il
+servizio, e senza quella riga il backup fallisce con un permesso negato.
+
+Fai subito una prova a mano, senza aspettare le 3:30:
+
+```bash
+sudo systemctl start emma-backup.service
+journalctl -u emma-backup.service -n 30 --no-pager
+ls -lh /mnt/backup/emma/
+```
+
+**Verifica.** Deve esserci un file `emma-AAAAMMGG-HHMMSS.tar.gz` con permessi
+`-rw-------`. Controlla anche il contenuto:
+
+```bash
+tar -tzf /mnt/backup/emma/emma-*.tar.gz | head -20
+tar -xzOf /mnt/backup/emma/emma-*.tar.gz MANIFEST.txt
+```
+
+Devono comparire i file del progetto, il `.env` e il manifesto con data e commit
+Git di provenienza.
+
+```bash
+systemctl list-timers emma-backup.timer
+```
+
+Ti dice quando scatterà la prossima esecuzione.
+
+## 4.8 Riepilogo: cosa c'è ora sulla macchina
+
+| Percorso | Cosa contiene | Permessi |
+| --- | --- | --- |
+| `/opt/emma` | codice, virtualenv, prompt | `750 emma:emma` |
+| `/opt/emma/.env` | chiave API e token | `600 emma:emma` |
+| `/mnt/backup/emma` | archivi datati | `700 emma:emma` |
+| `/etc/systemd/system/emma.service` | il servizio | root |
+| `/etc/systemd/system/emma-backup.{service,timer}` | il backup | root |
+
+Nessuna porta in ascolto verso l'esterno; una sola regola nel firewall, per SSH.
+
+\newpage
+
+# Capitolo 5 — Utilizzo
+
+## 5.1 Il giorno per giorno
+
+Apri Telegram, scrivi al bot, ricevi la risposta. È tutto.
+
+EMMA ricorda la conversazione in corso: puoi fare domande di seguito senza
+ripetere il contesto ("e domani?" dopo aver chiesto del meteo funziona). La
+memoria copre gli ultimi `MAX_HISTORY_MESSAGES` messaggi — con il default di 20,
+circa dieci scambi.
+
+Tempi di risposta tipici: uno o due secondi con Haiku. L'indicatore "sta
+scrivendo" compare subito, così sai che il messaggio è arrivato.
+
+## 5.2 Cosa aspettarsi
+
+EMMA nella v1 è una conversazione con un modello linguistico, con una personalità
+definita in `prompts/system_prompt.txt`: risposte brevi, italiano, tono diretto,
+nessun preambolo. Va bene per ragionare su un problema, farsi spiegare qualcosa,
+buttare giù un testo, riordinare le idee.
+
+**Non** ha accesso a Internet in tempo reale, ai tuoi file, al calendario, alla
+casa. Se le chiedi il meteo di adesso ti dirà che non può saperlo — e questo è il
+comportamento voluto: meglio un "non lo so" onesto di un'informazione inventata.
+
+## 5.3 Personalizzare il carattere
+
+Il file `prompts/system_prompt.txt` è la personalità, in italiano, in chiaro.
+Modificalo quando vuoi:
+
+```bash
+sudo -u emma nano /opt/emma/prompts/system_prompt.txt
+sudo systemctl restart emma.service
+```
+
+Il prompt viene letto all'avvio, quindi **il riavvio serve**. Qualche consiglio:
+descrivi il comportamento, non l'identità ("rispondi in due frasi" funziona
+meglio di "sii conciso"); dichiara esplicitamente cosa non può fare, così eviti
+che inventi; e tieni il file corto, perché viene inviato a ogni singolo messaggio
+e quindi lo paghi ogni volta.
+
+Se modifichi questo file **committalo**: fa parte del progetto e va versionato
+come il codice.
+
+## 5.4 Quanto costa
+
+Ogni messaggio consuma token in ingresso (il prompt di sistema, la finestra di
+conversazione, la tua domanda) e in uscita (la risposta). Con Sonnet e un uso
+personale si parla di pochi euro al mese, ma dipende da quanto scrivi.
+
+I numeri veri sono nei log:
+
+```bash
+journalctl -u emma | grep "anthropic call ok" | tail -20
+# ... anthropic call ok (attempt 1): stop_reason=end_turn in=412 out=87
+```
+
+`in` e `out` sono i token consumati. Il consuntivo ufficiale è nella dashboard di
+Anthropic; il consiglio pratico è impostare lì un limite di spesa mensile.
+
+Il parametro che sposta di più il costo è `MAX_HISTORY_MESSAGES`: raddoppiarlo
+raddoppia all'incirca i token in ingresso di ogni messaggio, perché l'intera
+finestra viene rimandata ogni volta.
+
+## 5.5 Limiti noti della versione 1
+
+Sono limiti dichiarati, non difetti. Ognuno ha già la sua fase nella roadmap.
+
+- **La memoria non sopravvive ai riavvii.** Un `systemctl restart`, un
+  aggiornamento o un riavvio della macchina azzerano le conversazioni. → v0.2,
+  SQLite.
+- **Nessuno strumento.** Niente meteo, calendario, note, luci, ricerche. → v0.3,
+  skill.
+- **Nessuna voce.** Solo testo, solo Telegram. → v0.4, satellite Raspberry.
+- **Solo testo in ingresso.** Foto, audio e documenti inviati al bot vengono
+  ignorati senza risposta.
+- **I comandi Telegram non fanno nulla.** `/start` e simili sono ignorati:
+  scrivi normalmente.
+- **Un solo utente.** Chiunque altro viene ignorato in silenzio, per progetto.
+- **Nessuna cancellazione della conversazione dal telefono.** Per ripartire da
+  zero, `sudo systemctl restart emma.service`.
+
+\newpage
+
+# Capitolo 6 — Manutenzione
+
+## 6.1 Leggere i log
+
+Tutto finisce nel journal di systemd. I comandi che userai davvero:
+
+```bash
+journalctl -u emma -f                    # in diretta (Ctrl+C per uscire)
+journalctl -u emma -n 100 --no-pager     # ultime 100 righe
+journalctl -u emma --since "1 hour ago"  # ultima ora
+journalctl -u emma --since today -p err  # solo errori di oggi
+journalctl -u emma -u emma-backup --since "2 days ago"   # servizio e backup insieme
+```
+
+Il formato di ogni riga è `timestamp | LIVELLO | modulo | messaggio`. Cosa
+significano le righe che vedrai più spesso:
+
+| Riga | Significato |
+| --- | --- |
+| `starting emma (model=..., history=...)` | avvio, con la configurazione in uso |
+| `telegram adapter started (long polling)` | il bot è connesso e in ascolto |
+| `incoming message from chat_id=...` | è arrivato un tuo messaggio |
+| `anthropic call ok (attempt 1): ... in=N out=M` | risposta ottenuta, token consumati |
+| `answered chat_id=... (degraded=False)` | risposta inviata |
+| `ignored message from user_id=... (not in whitelist)` | qualcun altro ha scritto al bot |
+| `anthropic call failed (attempt 1/3)` | tentativo fallito, sta riprovando |
+| `giving up on this turn, model unreachable` | tutti i tentativi falliti, risposta di cortesia |
+
+Quanto spazio occupa il journal e come limitarlo:
+
+```bash
+journalctl --disk-usage
+sudo journalctl --vacuum-time=30d        # tiene solo gli ultimi 30 giorni
+```
+
+## 6.2 La regola d'oro: prima il backup
+
+**Nessun aggiornamento di codice o di dipendenze senza uno snapshot precedente.**
+Non è una raccomandazione, è il primo passo obbligatorio di ogni procedura di
+questo capitolo. Ci vogliono dieci secondi e ti separa da un pomeriggio di
+ricostruzione.
+
+```bash
+sudo systemctl start emma-backup.service
+journalctl -u emma-backup.service -n 20 --no-pager    # controlla che sia andato bene
+ls -lht /mnt/backup/emma/ | head -3                   # l'archivio più recente è di adesso
+```
+
+Se il backup fallisce, **fermati**: risolvi quello prima di toccare qualunque
+altra cosa.
+
+## 6.3 Aggiornare il codice: PC di sviluppo → GitHub → server
+
+Il flusso è sempre lo stesso e va in una sola direzione. **Sul server non si
+modifica mai il codice a mano**: se lo facessi, il `git pull` successivo entrerebbe
+in conflitto e ti troveresti due versioni divergenti senza sapere quale è quella
+buona.
+
+### Sul PC di sviluppo (Windows)
+
+```powershell
+# 1. Snapshot locale, indipendente da Git
+powershell -ExecutionPolicy Bypass -File .\scripts\backup-dev.ps1
+
+# 2. Le modifiche, con le verifiche
+ruff format .
+ruff check .
+pytest
+
+# 3. Commit e push
+git add -A
+git commit -m "descrizione di cosa cambia e perché"
+git push
+```
+
+Se la modifica è una release, aggiorna `CHANGELOG.md`, incrementa la versione
+secondo semver e aggiungi il tag:
+
+```powershell
+git tag -a v0.1.1 -m "v0.1.1 - descrizione breve"
+git push --tags
+```
+
+Il criterio semver, in breve: **patch** (0.1.x) per correzioni che non cambiano
+il comportamento; **minor** (0.x.0) per funzionalità nuove compatibili;
+**major** (x.0.0) per cambiamenti che rompono la compatibilità — nel nostro caso,
+tipicamente una variabile `.env` rinominata o rimossa.
+
+### Sul server
+
+```bash
+# 1. BACKUP OBBLIGATORIO
+sudo systemctl start emma-backup.service
+journalctl -u emma-backup.service -n 20 --no-pager
+
+# 2. Annota la versione attuale, per poter tornare indietro
+cd /opt/emma
+git rev-parse --short HEAD        # per esempio a1b2c3d - segnatelo
+
+# 3. Scarica le modifiche
+sudo -u emma git -C /opt/emma pull
+
+# 4. Aggiorna le dipendenze, se requirements.txt è cambiato
+sudo -u emma /opt/emma/.venv/bin/pip install -r /opt/emma/requirements.txt
+
+# 5. Verifica prima di riavviare
+sudo -u emma /opt/emma/.venv/bin/python -m pytest
+
+# 6. Riavvia
+sudo systemctl restart emma.service
+systemctl status emma.service
+curl -s http://127.0.0.1:8000/health
+```
+
+**Verifica finale: scrivi al bot dal telefono.** Un servizio `active (running)`
+non dimostra che l'assistente risponde; un messaggio sì.
+
+Se qualcosa va storto, il paragrafo 6.6 spiega come tornare indietro.
+
+## 6.4 Aggiornare le dipendenze bloccate
+
+Le versioni in `requirements.txt` sono fissate apposta. Aggiornarle è un'azione
+deliberata, da fare sul PC di sviluppo, un pacchetto alla volta.
+
+```powershell
+# Cosa è invecchiato
+pip list --outdated
+
+# Aggiorna una libreria alla volta, non tutte insieme
+pip install --upgrade anthropic
+pip show anthropic | Select-String Version    # prendi il numero esatto
+# scrivi quel numero in requirements.txt
+
+# Verifica
+pytest
+ruff check .
+python main.py        # provalo davvero: scrivi al bot dal telefono
+
+git add requirements.txt
+git commit -m "bump anthropic to X.Y.Z"
+```
+
+Perché una alla volta: se qualcosa si rompe, sai immediatamente quale libreria è
+stata. Aggiornandone cinque insieme passeresti un'ora a scoprirlo.
+
+Ogni tanto conviene rigenerare l'ambiente da zero, per accorgersi di una
+dipendenza che avevi installato a mano e che non è in `requirements.txt`:
+
+```powershell
+Remove-Item -Recurse -Force .venv
+python -m venv .venv
+.\.venv\Scripts\pip install -r requirements.txt
+pytest
+```
+
+**Aggiornamenti di sicurezza del sistema operativo** — separati e più semplici:
+
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo systemctl status emma.service        # controlla che sia sopravvissuto
+```
+
+Se l'upgrade tocca il kernel, pianifica un riavvio: `emma.service` è abilitato,
+quindi riparte da solo.
+
+## 6.5 Backup della configurazione
+
+Il `.env` è l'unico file che **non** è in Git e senza il quale l'assistente non
+parte. È dentro ogni archivio prodotto da `backup.sh`, ed è il motivo per cui la
+directory dei backup ha permessi `700`.
+
+Se vuoi una copia a parte, per esempio prima di rigenerare la chiave API:
+
+```bash
+sudo cp /opt/emma/.env /mnt/backup/emma/env-$(date +%Y%m%d).bak
+sudo chmod 600 /mnt/backup/emma/env-*.bak
+```
+
+Non copiarlo in Documenti, non mandartelo via mail, non metterlo in un servizio
+cloud non cifrato: è una chiave a pagamento e il controllo del tuo bot.
+
+## 6.6 Ripristino
+
+**Un backup mai provato in ripristino non è un backup.** Provalo una volta, oggi,
+quando non serve: scoprire che non funziona mentre serve è tutt'altra esperienza.
+
+### 6.6.1 Tornare a una versione precedente del codice (senza toccare i backup)
+
+È il caso più frequente: un aggiornamento ha rotto qualcosa e vuoi tornare a
+prima.
+
+```bash
+cd /opt/emma
+git log --oneline -10              # la cronologia: il commit buono è lì
+sudo -u emma git checkout a1b2c3d  # l'hash annotato al passo 2 del paragrafo 6.3
+sudo systemctl restart emma.service
+```
+
+Sei ora in *detached HEAD*: va benissimo come misura temporanea. Per tornare
+all'ultima versione, `sudo -u emma git checkout main`. Se il commit rotto è già
+su GitHub, la soluzione pulita è correggerlo sul PC di sviluppo con un nuovo
+commit (o un `git revert`) e rifare il ciclo del paragrafo 6.3 — **non riscrivere
+la cronologia già pubblicata**, perché romperebbe la copia sul server.
+
+### 6.6.2 Ripristino completo da un archivio
+
+Serve quando il ripristino da Git non basta: `.env` perso, directory
+danneggiata, o macchina nuova.
+
+```bash
+# 1. Scegli l'archivio e guarda cosa contiene
+ls -lht /mnt/backup/emma/
+tar -xzOf /mnt/backup/emma/emma-20260829-033012.tar.gz MANIFEST.txt
+
+# 2. Ferma il servizio
+sudo systemctl stop emma.service
+
+# 3. Estrai in una directory temporanea (mai direttamente sopra l'installazione)
+mkdir -p /tmp/restore
+tar -xzf /mnt/backup/emma/emma-20260829-033012.tar.gz -C /tmp/restore
+ls /tmp/restore/emma
+
+# 4. Metti da parte l'installazione attuale invece di cancellarla
+sudo mv /opt/emma /opt/emma.rotto-$(date +%Y%m%d)
+
+# 5. Rimetti a posto il ripristino
+sudo mv /tmp/restore/emma /opt/emma
+sudo chown -R emma:emma /opt/emma
+sudo chmod 750 /opt/emma
+sudo chmod 600 /opt/emma/.env
+
+# 6. Ricrea il virtualenv: nell'archivio non c'è, per scelta
+sudo -u emma python3 -m venv /opt/emma/.venv
+sudo -u emma /opt/emma/.venv/bin/pip install -r /opt/emma/requirements.txt
+
+# 7. Riparti
+sudo systemctl start emma.service
+systemctl status emma.service
+curl -s http://127.0.0.1:8000/health
+```
+
+**Verifica: scrivi al bot dal telefono.** Solo allora il ripristino è concluso.
+Quando sei sicuro che tutto funzioni, elimina `/opt/emma.rotto-*`.
+
+### 6.6.3 Ripristino su una macchina nuova
+
+Stessa procedura, con il capitolo 1 davanti (utente, directory, pacchetti, disco
+di backup) e i passi 4.6 e 4.7 dietro, per reinstallare le unit systemd. Il
+contenuto dell'archivio ti restituisce codice, `.env` e personalità: il resto è
+sistema, e il sistema si ricostruisce da questa guida.
+
+### 6.6.4 Ripristino dal PC di sviluppo
+
+Gli zip in `D:\EmmaBackups` contengono il progetto **compresa la directory
+`.git`**, quindi ognuno è un repository completo con tutta la cronologia. Se il
+repository locale si corrompe:
+
+1. rinomina la cartella di progetto attuale (non cancellarla);
+2. estrai lo zip più recente al suo posto;
+3. `git status` e `git log --oneline -5` per verificare che la cronologia ci sia;
+4. `git push` per riallineare GitHub, se serve.
+
+## 6.7 Problemi comuni
+
+### Il bot non risponde
+
+Nell'ordine:
+
+```bash
+systemctl status emma.service                 # 1. il servizio è vivo?
+journalctl -u emma -n 50 --no-pager           # 2. cosa dicono i log?
+curl -s http://127.0.0.1:8000/health          # 3. il processo risponde?
+```
+
+- **Il servizio non è attivo** → guarda l'errore nei log e vai al caso pertinente
+  qui sotto.
+- **Il servizio è attivo ma nei log non compare `incoming message`** → il
+  messaggio non arriva affatto. Stai scrivendo al bot giusto? Il
+  `TELEGRAM_BOT_TOKEN` è quello di *quel* bot?
+- **Nei log c'è `ignored message from user_id=NNN (not in whitelist)`** → è il
+  caso più comune in assoluto. Quel numero `NNN` è il tuo vero user ID: mettilo in
+  `TELEGRAM_ALLOWED_USER_ID` e riavvia. (I log ti hanno appena detto la risposta.)
+- **C'è `incoming message` ma non `answered`** → il problema è verso Anthropic:
+  cerca `anthropic call failed`.
+
+### `configuration error: required environment variable ... is missing`
+
+Il `.env` manca, è nel posto sbagliato o la variabile è vuota.
+
+```bash
+ls -l /opt/emma/.env
+sudo grep -c . /opt/emma/.env      # non deve essere 0
+```
+
+Il file deve stare nella directory del progetto, accanto a `main.py`.
+
+### `configuration error: TELEGRAM_ALLOWED_USER_ID must be an integer`
+
+Hai messo lo username invece del numero. Chiedi a
+[@userinfobot](https://t.me/userinfobot) il tuo `Id` e usa quello, senza chiocciola
+e senza virgolette.
+
+### Ricevi sempre "Non riesco a contattare il cervello"
+
+L'API Anthropic non è raggiungibile o rifiuta la chiave. Guarda i log:
+
+```bash
+journalctl -u emma | grep "anthropic call failed" | tail -5
+```
+
+- `AuthenticationError` / 401 → la chiave è sbagliata, scaduta o revocata. Ne
+  crei una nuova sulla console, la scrivi nel `.env`, `systemctl restart emma`.
+- `PermissionDeniedError` / 403, o messaggi su credito → controlla il credito e i
+  limiti di spesa sulla console.
+- `APIConnectionError` → problema di rete o DNS del server:
+  ```bash
+  curl -sI https://api.anthropic.com | head -1
+  resolvectl query api.anthropic.com
+  ```
+- `RateLimitError` / 429 → stai andando troppo veloce; il retry di solito lo
+  assorbe, se persiste rallenta.
+
+### Il servizio riparte in continuazione
+
+```bash
+journalctl -u emma -n 100 --no-pager | grep -i error
+```
+
+Quasi sempre è un errore di configurazione che si ripete a ogni avvio. Dopo
+cinque tentativi in cinque minuti systemd si ferma da solo: risolto il problema,
+`sudo systemctl reset-failed emma.service && sudo systemctl start emma.service`.
+
+### Il backup non parte o fallisce
+
+```bash
+journalctl -u emma-backup.service -n 30 --no-pager
+systemctl list-timers emma-backup.timer
+findmnt /mnt/backup                     # il disco è montato?
+sudo -u emma df -h /mnt/backup          # c'è spazio?
+```
+
+- **`cannot create ... (is the disk mounted?)`** → il disco non è montato:
+  `sudo mount -a` e controlla `/etc/fstab` (paragrafo 1.7.3).
+- **`Permission denied`** → o la directory non appartiene a `emma`, o manca
+  `ReadWritePaths=` nella unit (paragrafo 4.7).
+- **Il timer non compare in `list-timers`** → non è abilitato:
+  `sudo systemctl enable --now emma-backup.timer`.
+
+### Le risposte sono strane o fuori carattere
+
+Hai modificato `prompts/system_prompt.txt` e non hai riavviato: il prompt viene
+letto solo all'avvio. `sudo systemctl restart emma.service`.
+
+### `git pull` dice che ci sono conflitti
+
+Qualcuno — probabilmente tu — ha modificato file direttamente sul server. Per
+vedere cosa:
+
+```bash
+git -C /opt/emma status
+git -C /opt/emma diff
+```
+
+Se le modifiche locali non ti servono, `sudo -u emma git -C /opt/emma checkout --
+.` le scarta e poi il pull passa. Se ti servono, portale sul PC di sviluppo e
+falle rientrare dal flusso normale. E ricorda la regola: sul server non si
+modifica il codice.
+
+## 6.8 Calendario di manutenzione
+
+| Quando | Cosa |
+| --- | --- |
+| Automatico, ogni notte | il backup gira alle 3:30 |
+| Ogni settimana | un'occhiata a `journalctl -u emma -p err --since "7 days ago"` |
+| Ogni mese | `sudo apt update && sudo apt upgrade`; controllo della spesa sulla console Anthropic; `ls -lh /mnt/backup/emma/` per verificare che gli archivi ci siano davvero |
+| Ogni tre mesi | `pip list --outdated` sul PC di sviluppo e aggiornamento ragionato; **prova di ripristino** (paragrafo 6.6) |
+| Una volta sola, adesso | la prima prova di ripristino, prima che serva |
+
+---
+
+# Appendice A — Comandi di riferimento
+
+```bash
+# Servizio
+sudo systemctl status emma.service
+sudo systemctl restart emma.service
+sudo systemctl stop emma.service
+sudo systemctl start emma.service
+
+# Log
+journalctl -u emma -f
+journalctl -u emma -n 100 --no-pager
+journalctl -u emma --since today -p err
+
+# Salute
+curl -s http://127.0.0.1:8000/health
+
+# Backup
+sudo systemctl start emma-backup.service
+systemctl list-timers emma-backup.timer
+ls -lht /mnt/backup/emma/ | head
+
+# Aggiornamento (dopo il backup)
+sudo -u emma git -C /opt/emma pull
+sudo -u emma /opt/emma/.venv/bin/pip install -r /opt/emma/requirements.txt
+sudo -u emma /opt/emma/.venv/bin/python -m pytest
+sudo systemctl restart emma.service
+
+# Cronologia e ritorno indietro
+git -C /opt/emma log --oneline -10
+sudo -u emma git -C /opt/emma checkout <hash>
+sudo -u emma git -C /opt/emma checkout main
+```
+
+# Appendice B — Le variabili di `.env`
+
+| Variabile | Obbligatoria | Default | Note |
+| --- | --- | --- | --- |
+| `ANTHROPIC_API_KEY` | sì | — | comincia con `sk-ant-`; è un segreto |
+| `ANTHROPIC_MODEL` | no | `claude-sonnet-4-6` | qualunque identificativo valido |
+| `TELEGRAM_BOT_TOKEN` | sì | — | da @BotFather; è un segreto |
+| `TELEGRAM_ALLOWED_USER_ID` | sì | — | numero, non username; da @userinfobot |
+| `MAX_HISTORY_MESSAGES` | no | `20` | messaggi nella finestra; incide sul costo |
+| `SYSTEM_PROMPT_PATH` | no | `prompts/system_prompt.txt` | relativo alla directory del progetto |
+| `BACKUP_DIR` | no | `/mnt/backup/emma` | letto da `backup.sh` |
+| `BACKUP_KEEP` | no | `14` | archivi conservati dalla rotazione |
+
+# Appendice C — Dove guardare quando qualcosa non torna
+
+| Domanda | Risposta |
+| --- | --- |
+| Il servizio è vivo? | `systemctl status emma.service` |
+| Cosa è successo? | `journalctl -u emma -n 100 --no-pager` |
+| Il processo risponde? | `curl -s http://127.0.0.1:8000/health` |
+| Quale versione è in esecuzione? | `git -C /opt/emma log --oneline -1` |
+| Quando è stato l'ultimo backup? | `ls -lht /mnt/backup/emma/ \| head -3` |
+| Quanto sto spendendo? | `journalctl -u emma \| grep "anthropic call ok" \| tail -20` |
+| Quali sono le impostazioni attive? | il log di avvio: `journalctl -u emma \| grep "starting emma"` |
+| Perché è stato deciso così? | `REVISIONE.md`, e il capitolo 2 di questa guida |
+
+---
+
+*EMMA v0.1.0 — guida aggiornata al 29 agosto 2026. Il sorgente di questo
+documento è `docs/GUIDA.md`: modificalo lì e rigenera il PDF, così le due
+versioni non divergono.*

@@ -1,0 +1,81 @@
+# EMMA - main service.
+#
+# Install (see chapter 4 of docs/GUIDA.pdf):
+#   sudo cp systemd/emma.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now emma.service
+#
+# This file assumes the installation layout recommended by the guide:
+#   installation directory : /opt/emma
+#   virtual environment    : /opt/emma/.venv
+#   system user and group  : emma
+# If you install somewhere else, the three lines marked PATH below and the
+# User=/Group= pair are the only ones you need to change.
+
+[Unit]
+Description=EMMA personal assistant (Telegram, text v1)
+Documentation=file:/opt/emma/docs/GUIDA.pdf
+# The bot dials out to the Telegram API at start-up, so wait for real
+# connectivity rather than for the network stack to merely exist.
+After=network-online.target
+Wants=network-online.target
+# If it fails more than 5 times in 5 minutes, stop and wait for a human: the
+# problem is not transient and hammering the Telegram API would not help.
+# (These two are [Unit] options, not [Service] ones - a frequent mistake.)
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=emma
+Group=emma
+
+# PATH: installation directory.
+WorkingDirectory=/opt/emma
+# PATH: interpreter of the virtual environment, and the entry point.
+ExecStart=/opt/emma/.venv/bin/python /opt/emma/main.py
+
+# Logs go to stdout and are captured by the journal: `journalctl -u emma -f`.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=emma
+# Unbuffered, or the journal would show the logs in bursts; no .pyc written,
+# which keeps the installation directory read-only-clean (see ProtectSystem).
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+# Always come back: an unhandled crash, an OOM kill or a reboot must not leave
+# the assistant silent. The 5 second pause avoids a hot restart loop when the
+# cause is permanent (a bad .env, for instance).
+Restart=always
+RestartSec=5s
+
+# --- Hardening --------------------------------------------------------------
+# The process only needs to read its own directory and to open outbound HTTPS
+# connections. Everything else is taken away from it.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# Outbound IPv4/IPv6 plus AF_UNIX, which glibc needs to resolve names through
+# systemd-resolved; no raw or exotic socket families.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
