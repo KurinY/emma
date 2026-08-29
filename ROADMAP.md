@@ -12,7 +12,7 @@ Propose new items in `REVISIONE.md` first; move them here once approved.
 - [x] Tests: `test_llm.py` — retry / no-retry coverage
 - [x] Tests: `test_telegram.py` — `_split_message` coverage
 - [x] Model: default upgraded to `claude-sonnet-4-6`
-- [ ] Commit + backup for all Session 1 & 2 changes
+- [x] Commit + backup for all Session 1 & 2 changes (commit `f4e6fbd`, backup `emma-20260829-120447.zip`)
 - [ ] Regenerate `docs/GUIDA.pdf` from updated `docs/GUIDA.md`
 
 ---

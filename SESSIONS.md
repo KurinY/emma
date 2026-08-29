@@ -15,9 +15,10 @@ end-of-session procedure that was not completed.
 **Done:**
 - Created SESSIONS.md and ROADMAP.md for cross-session tracking
 - Updated project_emma memory entry (default model was stale: haiku → sonnet)
+- Ran end-of-session procedure: ruff clean, 33 tests passing, backup written to
+  `D:\EmmaBackups\emma-20260829-120447.zip`, initial git commit `f4e6fbd`
 
 **Pending:**
-- [ ] Run end-of-session procedure (ruff → pytest → backup → commit)
 - [ ] Regenerate `docs/GUIDA.pdf` from `docs/GUIDA.md` (user must do this manually)
 
 ---
