@@ -79,5 +79,5 @@ answer and back.
 - One channel (Telegram) and one user.
 - No tools, no voice, no persistence — see the roadmap in the README.
 
-[Unreleased]: https://github.com/<your-account>/emma/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/<your-account>/emma/releases/tag/v0.1.0
+[Unreleased]: https://github.com/KurinY/emma/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/KurinY/emma/releases/tag/v0.1.0
