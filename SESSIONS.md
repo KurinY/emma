@@ -33,9 +33,15 @@ for the next session. Newest entry at the top.
 - Backup: `D:\EmmaBackups\emma-20260830-170129.zip`
 - Commit: `97cfe8a`
 
+**Done (continued):**
+- Deploy su VPS Aruba (solo IPv6) completato: codice copiato via scp, Python 3.12,
+  venv, .env, systemd service. EMMA risponde su Telegram dal server di produzione.
+- README.md aggiornato: multi-provider, compatibilità Python 3.11/3.12, layout
+- ROADMAP.md aggiornato con tutti i task v0.1.x completati
+- Push a GitHub (commit `c8a8c5a` + aggiornamenti repo/roadmap)
+
 **Pending:**
 - [ ] Regenerate `docs/GUIDA.pdf` (user must do this manually — PDF toolchain)
-- [ ] Push a GitHub quando la versione è considerata completa e stabile
 
 ---
 

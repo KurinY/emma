@@ -12,7 +12,14 @@ Propose new items in `REVISIONE.md` first; move them here once approved.
 - [x] Tests: `test_llm.py` — retry / no-retry coverage
 - [x] Tests: `test_telegram.py` — `_split_message` coverage
 - [x] Model: default upgraded to `claude-sonnet-4-6`
-- [x] Commit + backup for all Session 1 & 2 changes (commit `f4e6fbd`, backup `emma-20260829-120447.zip`)
+- [x] Multi-provider LLM: `LLM_PROVIDER` selects Anthropic or Groq at boot
+- [x] `GroqLanguageModel` in `core/llm.py` — OpenAI-compatible, same retry policy
+- [x] Config: `llm_provider`, `groq_api_key`, `groq_model` fields added
+- [x] Docs: `GUIDA.md` updated (section 2.8, Appendice B) for new variables
+- [x] Privacy: real IPs, hostnames and personal names removed from all tracked files
+- [x] CLAUDE.md rule 7: mandatory privacy check before every push
+- [x] Deployment: tested on local Ubuntu VM and production VPS (IPv6-only)
+- [x] Commit + backup for Session 3 changes (commit `c8a8c5a`, backup `emma-20260830-170129.zip`)
 - [ ] Regenerate `docs/GUIDA.pdf` from updated `docs/GUIDA.md`
 
 ---

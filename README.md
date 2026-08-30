@@ -1,7 +1,7 @@
 # EMMA
 
-A self-hosted personal assistant you talk to from Telegram, powered by the
-Anthropic API.
+A self-hosted personal assistant you talk to from Telegram, powered by a
+selectable LLM backend — Anthropic Claude or Groq (free tier).
 
 > **Status: early stage — personal project, v1: text-only.**
 > This is the first working slice of a larger system: one full loop from a
@@ -28,14 +28,14 @@ What that buys you compared to using a chat app directly:
 ## Architecture in one picture
 
 ```
-   Telegram app                Your server                    Anthropic API
+   Telegram app                Your server                    LLM backend
    (your phone)          ┌───────────────────────────┐
-        │                │  adapters/telegram.py     │
-        │  long polling  │        ↕ (request/reply)  │
-        └───────────────▶│  core/router.py ──────────┼──────▶  Claude
-                         │        ↕                  │◀──────
-                         │  core/memory.py           │
-                         │  core/llm.py              │
+        │                │  adapters/telegram.py     │      Anthropic API
+        │  long polling  │        ↕ (request/reply)  │   ┌─────────────┐
+        └───────────────▶│  core/router.py ──────────┼──▶│  (selectable│
+                         │        ↕                  │◀──│   via env)  │
+                         │  core/memory.py           │   └─────────────┘
+                         │  core/llm.py              │      Groq API
                          └───────────────────────────┘
 ```
 
@@ -56,10 +56,12 @@ Three ideas hold it together:
 
 ## Requirements
 
-- Python 3.11 or newer
-- An [Anthropic API key](https://console.anthropic.com)
+- Python 3.11 or newer (3.12 also supported — tested on Ubuntu 24.04)
 - A Telegram bot token from [@BotFather](https://t.me/BotFather) and your own
   numeric user ID (ask [@userinfobot](https://t.me/userinfobot))
+- **One** of the following LLM backends:
+  - [Anthropic API key](https://console.anthropic.com) (`LLM_PROVIDER=anthropic`, default)
+  - [Groq API key](https://console.groq.com) (`LLM_PROVIDER=groq`, free tier available)
 - Linux, macOS or Windows to run it; the deployment guide targets Ubuntu Server
 
 ## Quick start
@@ -81,9 +83,10 @@ python main.py
 Now write to your bot from Telegram. You should get an answer within a couple
 of seconds, and the log line for it on stdout.
 
-The three values you must fill in are `ANTHROPIC_API_KEY`,
-`TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_ID`; everything else in
-`.env.example` has a sensible default and is documented in place.
+Set `LLM_PROVIDER` to `anthropic` (default) or `groq` in `.env`, then fill
+in the matching API key (`ANTHROPIC_API_KEY` or `GROQ_API_KEY`), plus
+`TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_ID`. Everything else has a
+sensible default and is documented in `.env.example`.
 
 For a real deployment — dedicated system user, systemd service, automatic
 restart, scheduled backups and restore — follow **`docs/GUIDA.pdf`**, which
@@ -97,7 +100,7 @@ main.py             process entry point: FastAPI + Telegram in one event loop
 config.py           .env loading and validation
 adapters/telegram.py the only file that knows Telegram exists
 core/router.py      orchestrator: context → model → tool loop → answer
-core/llm.py         Anthropic client, retries and backoff
+core/llm.py         LLM clients (Anthropic + Groq), shared retry/backoff policy
 core/memory.py      memory interface + in-memory sliding window
 prompts/            the assistant personality, as plain text
 scripts/            backup on the server (bash) and on the dev PC (PowerShell)
