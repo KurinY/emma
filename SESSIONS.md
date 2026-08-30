@@ -12,10 +12,33 @@ for the next session. Newest entry at the top.
 **Context:** Rigenerazione `docs/GUIDA.pdf` dopo aggiornamento manuale di `docs/GUIDA.md` (versione 1, solo testo).
 
 **Done:**
-- `docs/GUIDA.md` aggiornato dall'utente (versione 1, solo testo, v0.1.0)
-- `docs/GUIDA.pdf` rigenerato con pandoc + xelatex (218 KB)
+- `docs/GUIDA.md` aggiornato dall'utente (versione 1, solo testo)
+- `docs/GUIDA.pdf` rigenerato con pandoc + xelatex
 - ROADMAP.md: spuntati GUIDA.pdf (v0.1.x) e GUIDA.md update (v0.2)
-- Commit e push
+- **Revisione completa della guida per allinearla a v0.2.0** (la guida era ancora
+  ferma a v0.1.0 in molti punti):
+  - frontmatter e footer: `v0.1.0` → `v0.2.0`, data 31 agosto
+  - intro e cap. 1.9: due provider (Anthropic a pagamento / Groq gratuito)
+  - cap. 2.1 diagramma: `data/emma.db` nel filesystem, memory.py = SQLite
+  - cap. 2.5: due implementazioni di memoria, non più "SQLite in programma"
+  - cap. 2.6: retry solo sugli errori transitori
+  - cap. 3.1 mappa: aggiunta `data/`, llm.py = Anthropic/Groq
+  - cap. 3.3: documentata `SqliteConversationMemory` con open/close e MEMORY_DB_PATH
+  - cap. 3.4: due classi client con la stessa interfaccia
+  - cap. 3.7: `SqliteConversationMemory` in main.py, lifespan apre/chiude il DB
+  - cap. 3.8: 21 → 43 test, con tabella per file
+  - cap. 4.3/4.4/4.5/4.6: aiosqlite e groq nella verifica pip, `MEMORY_DB_PATH`
+    negli opzionali, log di avvio con `provider=` e `db=`, `/health` con provider
+  - cap. 5.1/5.4/5.5: memoria persistente, costo zero con Groq, rimosso il
+    limite "memoria persa al riavvio"
+  - **nuovo cap. 5.6**: come azzerare la memoria
+  - cap. 6.1/6.5/6.6.2/6.7: log con provider, backup che include il DB,
+    ripristino che riporta le conversazioni, **nuovi casi di troubleshooting
+    SQLite** (permessi, database locked, unable to open) e Groq (404 modello)
+  - Appendici A e C: comandi per azzerare la memoria e ispezionare il DB
+- `CHANGELOG.md`: `[Unreleased]` promosso a `[0.2.0] - 2026-08-31`, link di
+  confronto aggiornati, sezione Documentation aggiunta
+- 43 test verdi, ruff pulito
 
 **Pending:** nessuno — tutto clean
 

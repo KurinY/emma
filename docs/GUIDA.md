@@ -1,7 +1,7 @@
 ---
 title: "EMMA — Guida completa"
 subtitle: "Assistente personale self-hosted · versione 1, solo testo"
-version: "v0.1.0"
+version: "v0.2.0"
 date: "31 agosto 2026"
 lang: it
 ---
@@ -10,7 +10,8 @@ lang: it
 
 Questa guida porta un server Ubuntu appena installato ad avere EMMA in funzione:
 un assistente personale con cui chatti da Telegram, che gira su hardware tuo e
-che parla con il modello Claude attraverso l'API di Anthropic.
+che parla con un modello linguistico attraverso l'API di Anthropic o quella di
+Groq, a scelta.
 
 È il manuale completo di riferimento. Il `README.md` del repository è la guida
 rapida in inglese per chi vuole solo provarlo; questa guida è quella da seguire
@@ -19,9 +20,11 @@ alla fine non ti serve cercare informazioni altrove.
 
 **Cosa fa EMMA nella versione 1.** Scrivi al tuo bot Telegram dal telefono. Un
 servizio Python sul tuo server riceve il messaggio, ci aggiunge la conversazione
-recente, chiede una risposta a Claude e te la rimanda. Il bot risponde solo a te.
-Non c'è voce, non ci sono strumenti, la memoria dura finché il processo resta
-acceso. È la fondazione: tutto il resto arriverà sopra questa.
+recente, chiede una risposta al modello e te la rimanda. Il bot risponde solo a
+te. Il modello si sceglie in configurazione: Claude tramite l'API di Anthropic,
+oppure Groq, che ha un piano gratuito. La conversazione è salvata su disco e
+sopravvive ai riavvii. Non c'è voce e non ci sono strumenti: è la fondazione, e
+tutto il resto arriverà sopra questa.
 
 **A chi si rivolge.** A chi sa muoversi in un terminale Linux ma non dà nulla per
 scontato. Ogni comando è scritto per intero e ogni scelta è motivata, perché fra
@@ -316,7 +319,7 @@ l'utente `emma` deve poterli leggere. Questo percorso è quello che scriverai in
 
 ## 1.8 Firewall
 
-EMMA **non espone nulla in ingresso**: parla con Telegram e con Anthropic aprendo
+EMMA **non espone nulla in ingresso**: parla con Telegram e con il provider LLM aprendo
 connessioni in uscita, e l'endpoint `/health` è in ascolto solo su `127.0.0.1`,
 raggiungibile unicamente dalla macchina stessa. Il firewall quindi non deve
 aprire niente per EMMA: deve solo lasciarti entrare in SSH.
@@ -348,10 +351,17 @@ gestire.
 Prima del deploy procurati questi tre valori. Tienili da parte: li scriverai nel
 `.env` al capitolo 4.
 
-**Chiave API Anthropic.** Su <https://console.anthropic.com>, sezione *API Keys*,
+**La chiave del provider LLM** — una delle due, secondo quale userai.
+
+*Anthropic (a pagamento).* Su <https://console.anthropic.com>, sezione *API Keys*,
 crea una chiave. Comincia con `sk-ant-`. Viene mostrata **una volta sola**:
 copiala subito. Ricorda anche di impostare un limite di spesa mensile nella
 sezione fatturazione — è la protezione più semplice contro una sorpresa.
+
+*Groq (piano gratuito).* Su <https://console.groq.com> crea una chiave: comincia
+con `gsk_`. È l'opzione da scegliere se vuoi tenere la spesa a zero; in cambio i
+modelli disponibili dipendono dal piano e i limiti di richieste al minuto sono
+più stretti. Puoi cambiare provider in qualunque momento, è una riga nel `.env`.
 
 **Token del bot Telegram.** Dal telefono, scrivi a
 [@BotFather](https://t.me/BotFather):
@@ -398,14 +408,15 @@ te e a nessun altro.
                      │  │       │            │           │   │      └──────────┘
                      │  │       ▼            ▼           │   │
                      │  │  core/memory.py  core/llm.py   │   │
-                     │  │   finestra        retry e      │   │
-                     │  │   scorrevole      backoff      │   │
+                     │  │   SQLite +        retry e      │   │
+                     │  │   finestra        backoff      │   │
                      │  │                                │   │
                      │  │  FastAPI ─ GET /health         │   │
                      │  │     (solo su 127.0.0.1)        │   │
                      │  └────────────────────────────────┘   │
                      │                                       │
                      │  /opt/emma/.env  ─ chiavi e opzioni   │
+                     │  /opt/emma/data/emma.db ─ cronologia  │
                      │  /mnt/backup/emma ─ archivi datati    │
                      └──────────────────────────────────────┘
 
@@ -529,14 +540,14 @@ async def append(conversation_id, message) -> None
 async def prune(conversation_id) -> None
 ```
 
-e una sola implementazione, `InMemoryConversationMemory`: un dizionario in RAM con
-una finestra scorrevole di `MAX_HISTORY_MESSAGES` messaggi per conversazione.
+due implementazioni: `InMemoryConversationMemory` (dizionario in RAM, perduta al
+riavvio, usata nei test) e `SqliteConversationMemory` (file SQLite via `aiosqlite`,
+persistente tra i riavvii, attiva in produzione dalla v0.2). Entrambe condividono
+la stessa finestra scorrevole di `MAX_HISTORY_MESSAGES` messaggi per conversazione.
 
-Perché un'interfaccia per una singola implementazione? Perché la seconda è già in
-programma. Quando la memoria diventerà SQLite, sarà una nuova classe che
-implementa gli stessi tre metodi, scelta in una riga di `main.py`. Il router non
-saprà mai la differenza — e i test del router, che usano la memoria vera,
-continueranno a valere.
+Il valore dell'interfaccia si è visto con l'introduzione della v0.2: il router non
+ha cambiato una riga. I test del router girano contro la memoria vera (SQLite su
+file temporaneo) e verificano il contratto reale indipendentemente dal backend.
 
 Due dettagli non ovvi dell'implementazione attuale:
 
@@ -558,7 +569,9 @@ ciascuna per un tipo diverso di guasto.
 esponenziale: subito, dopo 1 secondo, dopo 2. Assorbe i disturbi brevi — un
 pacchetto perso, un 529 di sovraccarico dell'API — senza che tu te ne accorga. I
 retry interni del SDK sono disattivati (`max_retries=0`) perché altrimenti i
-tentativi reali sarebbero nove, con attese moltiplicate.
+tentativi reali sarebbero nove, con attese moltiplicate. Si ritenta solo ciò che
+ha senso ritentare: un 401 per chiave sbagliata fallisce al primo colpo, perché
+riprovare non la farebbe diventare giusta.
 
 **Livello 2 — il turno** (`core/router.py`). Se tutti i tentativi falliscono,
 l'eccezione non risale: diventa una risposta di cortesia. Ricevi *"Non riesco a
@@ -638,13 +651,14 @@ emma/
 │   └── telegram.py            l'unico file che sa cos'è Telegram
 ├── core/
 │   ├── router.py              orchestratore: contesto → modello → tool → risposta
-│   ├── llm.py                 client Anthropic, retry e backoff
-│   └── memory.py              interfaccia memoria + implementazione in RAM
+│   ├── llm.py                 client Anthropic/Groq, retry e backoff
+│   └── memory.py              interfaccia memoria + implementazioni RAM e SQLite
 ├── prompts/
 │   └── system_prompt.txt      la personalità di EMMA
 ├── scripts/                   backup sul server (bash) e sul PC di sviluppo (PowerShell)
 ├── systemd/                   servizio e timer di backup
 ├── tests/                     suite pytest, interamente offline
+├── data/                      (non in Git) database SQLite delle conversazioni
 └── docs/                      questa guida
 ```
 
@@ -681,8 +695,18 @@ Dettagli che vale la pena conoscere:
 `ConversationMemory` è la classe astratta con i tre metodi visti al capitolo 2.
 `StoredMessage` è la coppia ruolo/testo che ci viaggia dentro.
 
-`InMemoryConversationMemory` la implementa con un dizionario di liste. Tre scelte
-implementative:
+Il modulo fornisce due implementazioni concrete.
+
+**`InMemoryConversationMemory`** usa un dizionario di liste in RAM. È usata nei
+test (veloce, senza I/O) ma perde tutto al riavvio del processo.
+
+**`SqliteConversationMemory`** (attiva in produzione dalla v0.2) persiste i
+messaggi in un file SQLite via `aiosqlite`. Va aperta con `open()` all'avvio e
+chiusa con `close()` allo spegnimento — il lifespan di FastAPI se ne occupa.
+Il percorso del file si controlla con `MEMORY_DB_PATH` (default `data/emma.db`);
+la directory viene creata automaticamente se non esiste.
+
+Tre scelte implementative comuni a entrambe:
 
 - **un `asyncio.Lock` protegge le sequenze leggi-modifica-scrivi.** PTB può
   eseguire due handler in concorrenza, e senza il lock due messaggi ravvicinati
@@ -693,12 +717,12 @@ implementative:
   Serve perché venga invocato liberamente, senza doversi chiedere se è già stato
   fatto.
 
-Il limite dichiarato: tutto vive in RAM, quindi un riavvio del servizio azzera le
-conversazioni. È il primo pezzo che verrà sostituito, nella v0.2.
-
 ## 3.4 `core/llm.py` — il client del modello
 
-È l'unico file che importa `anthropic`. Fa tre cose.
+È l'unico file che importa gli SDK dei provider (`anthropic` e `groq`). Contiene
+due classi con la stessa interfaccia — `AnthropicLanguageModel` e
+`GroqLanguageModel` — scelte in `main.py` in base a `LLM_PROVIDER`. Il router non
+sa quale delle due sta usando. Entrambe fanno tre cose.
 
 **Nasconde il SDK.** Le risposte vengono convertite in tipi nostri —
 `TextBlock` e `ToolUseBlock` dentro un `LLMResponse` — così il router non dipende
@@ -712,7 +736,10 @@ di errore; il successo ne produce una con `stop_reason` e i token consumati in
 ingresso e in uscita — è da lì che si capisce quanto costa davvero l'assistente.
 
 **Traduce il fallimento definitivo** in `LLMUnavailableError`, che è ciò che il
-router intercetta per rispondere con cortesia.
+router intercetta per rispondere con cortesia. Solo gli errori transitori
+(problemi di connessione, 5xx) vengono ritentati: un 4xx permanente — chiave
+sbagliata, richiesta malformata — fallisce subito, senza bruciare tre secondi in
+tentativi inutili.
 
 Un metodo merita attenzione: `to_assistant_message()`. L'API Messages è
 *stateless*, quindi per continuare un turno agentico bisogna rimandare la risposta
@@ -765,8 +792,8 @@ Punti da conoscere:
 È il *composition root*: l'unico punto in cui si scelgono le classi concrete.
 
 ```python
-llm      = AnthropicLanguageModel(...)          # ← qui si cambia modello
-memory   = InMemoryConversationMemory(...)      # ← qui arriverà SQLite
+llm      = AnthropicLanguageModel(...)          # o GroqLanguageModel, secondo LLM_PROVIDER
+memory   = SqliteConversationMemory(...)        # persistente dalla v0.2
 router   = Router(llm, memory, prompt, tools=())# ← qui si registrano le skill
 telegram = TelegramAdapter(token, user_id, router)
 ```
@@ -774,8 +801,9 @@ telegram = TelegramAdapter(token, user_id, router)
 Sostituire un componente è una riga in questo file. È il posto giusto in cui
 guardare per capire come è montato il sistema.
 
-Il *lifespan* di FastAPI avvia il polling all'avvio del server e lo ferma allo
-spegnimento, chiudendo anche il pool di connessioni HTTP verso Anthropic. Il
+Il *lifespan* di FastAPI apre il database, avvia il polling all'avvio del server
+e allo spegnimento fa il percorso inverso: ferma il polling, chiude il pool di
+connessioni HTTP verso il provider e chiude il database. Il
 logging è configurato una volta sola su stdout, nel formato
 `timestamp | LIVELLO | logger | messaggio`, con i logger delle librerie HTTP
 silenziati: sotto long polling emetterebbero una riga ogni pochi secondi senza
@@ -787,17 +815,20 @@ nasconderebbero l'unica che conta.
 
 ## 3.8 `tests/` — la suite
 
-Ventuno test, tutti offline. Il modello è sostituito da `ScriptedModel`, un finto
-client che restituisce risposte preparate e registra cosa gli è stato chiesto:
-implementa la stessa interfaccia del client vero, quindi verifica il contratto
-reale.
+Quarantatré test, tutti offline. Il modello è sostituito da `ScriptedModel`, un
+finto client che restituisce risposte preparate e registra cosa gli è stato
+chiesto: implementa la stessa interfaccia del client vero, quindi verifica il
+contratto reale.
 
-Cosa coprono: il turno semplice; il riporto della cronologia; l'isolamento fra
-conversazioni; il ciclo tool completo con verifica del formato dei
-`tool_result`; il tool sconosciuto; il tool che esplode; il tetto ai round; il
-modello irraggiungibile; la risposta vuota; il fatto che un turno fallito non
-inquina il successivo; e per la memoria, la finestra scorrevole, la regola del
-primo messaggio utente, l'idempotenza di `prune` e la copia difensiva.
+Come sono distribuiti:
+
+| File | Test | Cosa copre |
+| --- | --- | --- |
+| `test_router.py` | 12 | turno semplice, cronologia, isolamento fra conversazioni, ciclo tool completo con formato dei `tool_result`, tool sconosciuto, tool che esplode, tetto ai round, modello irraggiungibile, risposta vuota, turno fallito che non inquina il successivo |
+| `test_memory_sqlite.py` | 10 | come sopra, più la persistenza attraverso chiusura e riapertura del database |
+| `test_memory.py` | 9 | finestra scorrevole, regola del primo messaggio utente, idempotenza di `prune`, copia difensiva |
+| `test_llm.py` | 6 | distinzione fra errori transitori (da ritentare) e permanenti (da propagare subito) |
+| `test_telegram.py` | 6 | `_split_message`, incluse le righe vuote a cavallo di un taglio |
 
 Non puntano alla copertura totale: puntano ai punti in cui una regressione
 sarebbe silenziosa.
@@ -868,10 +899,10 @@ rompere strumenti di Ubuntu che usano Python, e nessun bisogno di
 **Verifica.**
 
 ```bash
-sudo -u emma /opt/emma/.venv/bin/pip list | grep -Ei "anthropic|telegram|fastapi|uvicorn|dotenv"
+sudo -u emma /opt/emma/.venv/bin/pip list | grep -Ei "anthropic|groq|aiosqlite|telegram|fastapi|uvicorn|dotenv"
 ```
 
-Devi vedere le cinque librerie con le versioni esatte scritte in
+Devi vedere tutte le librerie con le versioni esatte scritte in
 `requirements.txt`.
 
 ## 4.4 Il file `.env`
@@ -913,6 +944,7 @@ E controlla gli opzionali, che hanno già default sensati:
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | modello Anthropic |
 | `GROQ_MODEL` | `openai/gpt-oss-120b` | modello Groq |
 | `MAX_HISTORY_MESSAGES` | `20` | messaggi tenuti nella finestra di contesto |
+| `MEMORY_DB_PATH` | `data/emma.db` | file SQLite della cronologia; creato al primo avvio |
 | `SYSTEM_PROMPT_PATH` | `prompts/system_prompt.txt` | il file con la personalità |
 | `BACKUP_DIR` | `/mnt/backup/emma` | dove finiscono gli archivi |
 | `BACKUP_KEEP` | `14` | quanti archivi conservare |
@@ -942,10 +974,13 @@ sudo -u emma /opt/emma/.venv/bin/python main.py
 Devi vedere qualcosa come:
 
 ```
-2026-08-29T14:02:10+0200 | INFO     | emma | starting emma (model=claude-sonnet-4-6, history=20 messages)
-2026-08-29T14:02:11+0200 | INFO     | adapters.telegram | telegram adapter started (long polling)
+2026-08-31T14:02:10+0200 | INFO     | emma | starting emma (provider=anthropic, model=claude-sonnet-4-6, history=20 messages, db=data/emma.db)
+2026-08-31T14:02:11+0200 | INFO     | adapters.telegram | telegram adapter started (long polling)
 INFO:     Uvicorn running on http://127.0.0.1:8000
 ```
+
+Al primo avvio la directory `data/` e il file del database vengono creati
+automaticamente: non devi preparare nulla a mano.
 
 **Ora la prova vera: prendi il telefono e scrivi al tuo bot.** Entro un paio di
 secondi devi ricevere una risposta, e sul terminale devono comparire le righe
@@ -981,7 +1016,7 @@ Devi leggere `Active: active (running)`. Poi:
 
 ```bash
 curl -s http://127.0.0.1:8000/health
-# {"status":"ok","model":"claude-sonnet-4-6","uptime_seconds":12.4}
+# {"status":"ok","model":"claude-sonnet-4-6","provider":"anthropic","uptime_seconds":12.4}
 
 journalctl -u emma -n 30 --no-pager
 ```
@@ -1046,6 +1081,7 @@ Ti dice quando scatterà la prossima esecuzione.
 | --- | --- | --- |
 | `/opt/emma` | codice, virtualenv, prompt | `750 emma:emma` |
 | `/opt/emma/.env` | chiave API e token | `600 emma:emma` |
+| `/opt/emma/data/emma.db` | cronologia delle conversazioni | `emma:emma` |
 | `/mnt/backup/emma` | archivi datati | `700 emma:emma` |
 | `/etc/systemd/system/emma.service` | il servizio | root |
 | `/etc/systemd/system/emma-backup.{service,timer}` | il backup | root |
@@ -1060,13 +1096,14 @@ Nessuna porta in ascolto verso l'esterno; una sola regola nel firewall, per SSH.
 
 Apri Telegram, scrivi al bot, ricevi la risposta. È tutto.
 
-EMMA ricorda la conversazione in corso: puoi fare domande di seguito senza
-ripetere il contesto ("e domani?" dopo aver chiesto del meteo funziona). La
-memoria copre gli ultimi `MAX_HISTORY_MESSAGES` messaggi — con il default di 20,
-circa dieci scambi.
+EMMA ricorda la conversazione: puoi fare domande di seguito senza ripetere il
+contesto ("e domani?" dopo aver chiesto del meteo funziona). La memoria copre gli
+ultimi `MAX_HISTORY_MESSAGES` messaggi — con il default di 20, circa dieci scambi
+— e **dalla v0.2 sopravvive ai riavvii**: dopo un `systemctl restart` o un riavvio
+della macchina la conversazione riparte da dove l'avevi lasciata.
 
-Tempi di risposta tipici: uno o due secondi con Haiku. L'indicatore "sta
-scrivendo" compare subito, così sai che il messaggio è arrivato.
+Tempi di risposta tipici: uno o due secondi. L'indicatore "sta scrivendo" compare
+subito, così sai che il messaggio è arrivato.
 
 ## 5.2 Cosa aspettarsi
 
@@ -1100,14 +1137,19 @@ come il codice.
 
 ## 5.4 Quanto costa
 
-Ogni messaggio consuma token in ingresso (il prompt di sistema, la finestra di
-conversazione, la tua domanda) e in uscita (la risposta). Con Sonnet e un uso
-personale si parla di pochi euro al mese, ma dipende da quanto scrivi.
+Dipende dal provider. Con `LLM_PROVIDER=groq` sul piano gratuito **non costa
+nulla**, entro i limiti di richieste al minuto dell'account: è l'opzione da
+preferire se l'obiettivo è tenere la spesa a zero.
+
+Con Anthropic si paga a token. Ogni messaggio consuma token in ingresso (il
+prompt di sistema, la finestra di conversazione, la tua domanda) e in uscita (la
+risposta). Con Sonnet e un uso personale si parla di pochi euro al mese, ma
+dipende da quanto scrivi.
 
 I numeri veri sono nei log:
 
 ```bash
-journalctl -u emma | grep "anthropic call ok" | tail -20
+journalctl -u emma | grep -E "(anthropic|groq) call ok" | tail -20
 # ... anthropic call ok (attempt 1): stop_reason=end_turn in=412 out=87
 ```
 
@@ -1122,9 +1164,6 @@ finestra viene rimandata ogni volta.
 
 Sono limiti dichiarati, non difetti. Ognuno ha già la sua fase nella roadmap.
 
-- **La memoria non sopravvive ai riavvii.** Un `systemctl restart`, un
-  aggiornamento o un riavvio della macchina azzerano le conversazioni. → v0.2,
-  SQLite.
 - **Nessuno strumento.** Niente meteo, calendario, note, luci, ricerche. → v0.3,
   skill.
 - **Nessuna voce.** Solo testo, solo Telegram. → v0.4, satellite Raspberry.
@@ -1133,8 +1172,26 @@ Sono limiti dichiarati, non difetti. Ognuno ha già la sua fase nella roadmap.
 - **I comandi Telegram non fanno nulla.** `/start` e simili sono ignorati:
   scrivi normalmente.
 - **Un solo utente.** Chiunque altro viene ignorato in silenzio, per progetto.
-- **Nessuna cancellazione della conversazione dal telefono.** Per ripartire da
-  zero, `sudo systemctl restart emma.service`.
+- **Nessuna cancellazione della conversazione dal telefono.** Dalla v0.2 la
+  memoria è persistente, quindi un riavvio non basta più: per ripartire da zero
+  cancella il file del database e riavvia il servizio (paragrafo 5.6).
+
+## 5.6 Azzerare la memoria
+
+La cronologia sta in un file SQLite, per default `/opt/emma/data/emma.db`. Per
+ripartire da zero:
+
+```bash
+sudo systemctl stop emma.service
+sudo -u emma rm /opt/emma/data/emma.db
+sudo systemctl start emma.service
+```
+
+Il database viene ricreato vuoto al primo messaggio. Non serve toccare altro.
+
+Se vuoi conservare la cronologia prima di cancellarla, copiala altrove: è un file
+SQLite normale, leggibile con `sqlite3 emma.db "SELECT * FROM messages;"`.
+Tienilo dove tieni i backup — contiene le tue conversazioni.
 
 \newpage
 
@@ -1157,10 +1214,10 @@ significano le righe che vedrai più spesso:
 
 | Riga | Significato |
 | --- | --- |
-| `starting emma (model=..., history=...)` | avvio, con la configurazione in uso |
+| `starting emma (provider=..., model=..., history=..., db=...)` | avvio, con la configurazione in uso |
 | `telegram adapter started (long polling)` | il bot è connesso e in ascolto |
 | `incoming message from chat_id=...` | è arrivato un tuo messaggio |
-| `anthropic call ok (attempt 1): ... in=N out=M` | risposta ottenuta, token consumati |
+| `anthropic call ok (attempt 1): ... in=N out=M` | risposta ottenuta, token consumati (con Groq: `groq call ok`) |
 | `answered chat_id=... (degraded=False)` | risposta inviata |
 | `ignored message from user_id=... (not in whitelist)` | qualcun altro ha scritto al bot |
 | `anthropic call failed (attempt 1/3)` | tentativo fallito, sta riprovando |
@@ -1303,11 +1360,14 @@ sudo systemctl status emma.service        # controlla che sia sopravvissuto
 Se l'upgrade tocca il kernel, pianifica un riavvio: `emma.service` è abilitato,
 quindi riparte da solo.
 
-## 6.5 Backup della configurazione
+## 6.5 Backup della configurazione e della memoria
 
-Il `.env` è l'unico file che **non** è in Git e senza il quale l'assistente non
-parte. È dentro ogni archivio prodotto da `backup.sh`, ed è il motivo per cui la
-directory dei backup ha permessi `700`.
+Due file **non** sono in Git e vanno protetti dal backup: il `.env`, senza il
+quale l'assistente non parte, e `data/emma.db`, che contiene tutte le tue
+conversazioni. Entrambi finiscono in ogni archivio prodotto da `backup.sh` —
+il virtualenv invece è escluso apposta, perché si ricostruisce da
+`requirements.txt`. È per questi due file che la directory dei backup ha permessi
+`700`.
 
 Se vuoi una copia a parte, per esempio prima di rigenerare la chiave API:
 
@@ -1368,6 +1428,7 @@ sudo mv /tmp/restore/emma /opt/emma
 sudo chown -R emma:emma /opt/emma
 sudo chmod 750 /opt/emma
 sudo chmod 600 /opt/emma/.env
+# data/emma.db è nell'archivio: le conversazioni tornano com'erano
 
 # 6. Ricrea il virtualenv: nell'archivio non c'è, per scelta
 sudo -u emma python3 -m venv /opt/emma/.venv
@@ -1458,7 +1519,13 @@ journalctl -u emma | grep "anthropic call failed" | tail -5
   resolvectl query api.anthropic.com
   ```
 - `RateLimitError` / 429 → stai andando troppo veloce; il retry di solito lo
-  assorbe, se persiste rallenta.
+  assorbe, se persiste rallenta. Sul piano gratuito di Groq è il caso più comune:
+  i limiti al minuto sono più stretti.
+
+Con `LLM_PROVIDER=groq` valgono gli stessi controlli, cercando `groq call failed`
+invece di `anthropic call failed`. Un 404 sul nome del modello significa che
+`GROQ_MODEL` non è disponibile per il tuo account: elenca quelli accessibili con
+il comando del paragrafo 2.8.
 
 ### Il servizio riparte in continuazione
 
@@ -1485,6 +1552,26 @@ sudo -u emma df -h /mnt/backup          # c'è spazio?
   `ReadWritePaths=` nella unit (paragrafo 4.7).
 - **Il timer non compare in `list-timers`** → non è abilitato:
   `sudo systemctl enable --now emma-backup.timer`.
+
+### EMMA non ricorda più niente, oppure il servizio non parte per il database
+
+Dalla v0.2 la cronologia sta in `data/emma.db`. Controlla che il file esista e
+che l'utente `emma` possa scriverci:
+
+```bash
+ls -l /opt/emma/data/
+sudo -u emma sqlite3 /opt/emma/data/emma.db "SELECT COUNT(*) FROM messages;"
+```
+
+- **La directory `data/` non esiste** → viene creata al primo avvio; se manca,
+  i permessi di `/opt/emma` non consentono la scrittura:
+  `sudo chown -R emma:emma /opt/emma`.
+- **`unable to open database file`** nei log → stesso problema di permessi,
+  oppure `MEMORY_DB_PATH` nel `.env` punta a un percorso non scrivibile.
+- **`database is locked`** → due processi EMMA stanno girando insieme. Controlla
+  con `systemctl status emma.service` e chiudi quello avviato a mano.
+- **Il file c'è ma la cronologia è vuota** → normale dopo una cancellazione o al
+  primo avvio; si ripopola dal messaggio successivo.
 
 ### Le risposte sono strane o fuori carattere
 
@@ -1540,6 +1627,11 @@ sudo systemctl start emma-backup.service
 systemctl list-timers emma-backup.timer
 ls -lht /mnt/backup/emma/ | head
 
+# Memoria: azzerare la cronologia
+sudo systemctl stop emma.service
+sudo -u emma rm /opt/emma/data/emma.db
+sudo systemctl start emma.service
+
 # Aggiornamento (dopo il backup)
 sudo -u emma git -C /opt/emma pull
 sudo -u emma /opt/emma/.venv/bin/pip install -r /opt/emma/requirements.txt
@@ -1583,12 +1675,13 @@ sudo -u emma git -C /opt/emma checkout main
 | Il processo risponde? | `curl -s http://127.0.0.1:8000/health` |
 | Quale versione è in esecuzione? | `git -C /opt/emma log --oneline -1` |
 | Quando è stato l'ultimo backup? | `ls -lht /mnt/backup/emma/ \| head -3` |
-| Quanto sto spendendo? | `journalctl -u emma \| grep "anthropic call ok" \| tail -20` |
+| Quanto sto spendendo? | `journalctl -u emma \| grep -E "(anthropic\|groq) call ok" \| tail -20` |
 | Quali sono le impostazioni attive? | il log di avvio: `journalctl -u emma \| grep "starting emma"` |
+| Quante conversazioni sono in memoria? | `sudo -u emma sqlite3 /opt/emma/data/emma.db "SELECT conv_id, COUNT(*) FROM messages GROUP BY conv_id;"` |
 | Perché è stato deciso così? | `REVISIONE.md`, e il capitolo 2 di questa guida |
 
 ---
 
-*EMMA v0.1.0 — guida aggiornata al 31 agosto 2026. Il sorgente di questo
+*EMMA v0.2.0 — guida aggiornata al 31 agosto 2026. Il sorgente di questo
 documento è `docs/GUIDA.md`: modificalo lì e rigenera il PDF, così le due
 versioni non divergono.*

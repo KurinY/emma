@@ -10,6 +10,10 @@ change will always be listed here.
 
 ## [Unreleased]
 
+The next planned step is v0.3: real tools behind the existing `Tool` protocol.
+
+## [0.2.0] - 2026-08-31
+
 ### Added
 
 - **Persistent memory (SQLite)**: conversation history now survives process
@@ -45,8 +49,11 @@ change will always be listed here.
 - `tests/test_telegram.py`: six tests for `_split_message`, including blank-line
   preservation.
 
-The next planned step is v0.2: persistent memory on SQLite behind
-the existing `ConversationMemory` interface.
+### Documentation
+
+- `docs/GUIDA.md`/`.pdf` brought in line with 0.2.0: multi-provider setup,
+  persistent memory, `MEMORY_DB_PATH`, how to reset the conversation history,
+  and the SQLite troubleshooting cases.
 
 ## [0.1.0] - 2026-08-29
 
@@ -97,5 +104,6 @@ answer and back.
 - One channel (Telegram) and one user.
 - No tools, no voice, no persistence — see the roadmap in the README.
 
-[Unreleased]: https://github.com/KurinY/emma/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/KurinY/emma/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/KurinY/emma/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/KurinY/emma/releases/tag/v0.1.0
