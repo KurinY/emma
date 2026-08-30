@@ -36,7 +36,7 @@ the adapter — only a new `ConversationMemory` implementation swapped in.
 - [x] Tests: `test_memory_sqlite.py` — 9 tests including persistence across reopen
 - [ ] Update `docs/GUIDA.md` (new variable, first-run DB creation)
 - [x] Update `CHANGELOG.md` and this ROADMAP
-- [ ] Backup + commit + deploy
+- [x] Backup + commit + deploy (verificato in produzione su Aruba)
 
 ---
 

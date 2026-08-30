@@ -5,6 +5,28 @@ for the next session. Newest entry at the top.
 
 ---
 
+## 2026-08-30 — Session 4
+
+**Status:** Complete
+
+**Context:** Continuation di Session 3. Obiettivo: v0.2 memoria persistente SQLite.
+
+**Done:**
+- `SqliteConversationMemory` in `core/memory.py` tramite `aiosqlite`
+- `MEMORY_DB_PATH` in `config.py`, `.env.example`, `docs/GUIDA.md` (Appendice B)
+- `main.py`: swap da InMemory a Sqlite, open/close nel lifespan
+- `aiosqlite==0.20.0` in `requirements.txt`; `data/` in `.gitignore`
+- `tests/test_memory_sqlite.py`: 9 test incluso persistence-across-reopen
+- 43 test totali passano, ruff pulito
+- README, ROADMAP, repo About aggiornati; authorship dichiarata
+- Backup `emma-20260830-230713.zip`, commit `016bbec`, push GitHub
+- Deploy su Aruba VPS: servizio riavviato, memoria persistente **verificata via Telegram**
+
+**Pending:**
+- [ ] Rigenerare `docs/GUIDA.pdf` (manuale — toolchain PDF)
+
+---
+
 ## 2026-08-30 — Session 3
 
 **Status:** Complete
