@@ -935,6 +935,279 @@ resta la leva sbagliata.
 
 ---
 
+## 17. EMMA committente del proprio sviluppo (proposta, 31 agosto 2026)
+
+**Da dove nasce.** Tua idea: *"vorrei che EMMA utilizzasse le tue capacità di
+scrittura di codice per implementarsi dall'esterno"*. Non un canale di lavoro
+parallelo — quello lo avevo proposto io e sbagliavo — ma EMMA stessa come
+committente: le chiedi una capacità che non ha, lei la registra, io la
+implemento, lei riparte avendola.
+
+EMMA non si modifica: è il processo in esecuzione, non può riscriversi sotto i
+piedi. Ma può **commissionare la propria evoluzione e riceverla**.
+
+Questa voce è il progetto concordato in conversazione. Nulla è implementato.
+
+### 17.1 — I vincoli che lo definiscono
+
+Sono tuoi, e sono quelli che hanno scartato le alternative:
+
+| Vincolo | Cosa esclude |
+| --- | --- |
+| Un solo bot, EMMA | il canale di lavoro separato |
+| **Per ora nessuna API key: Claude Code aperto sul PC di sviluppo** | ogni variante headless o installata come servizio |
+| Nessuna spesa in più | il polling a modello acceso |
+| EMMA non parla mai per prima | ogni notifica push |
+| Permesso a ogni passaggio | l'esecuzione autonoma fino in fondo |
+| Permessi pieni sulla macchina | i prompt di conferma locali |
+
+Gli ultimi due sembrano contraddirsi e non lo fanno: agiscono su piani diversi.
+Nessun blocco **sulla macchina**, dove non hai accesso fisico e non potresti
+rispondere; consenso esplicito **in conversazione**, dove il telefono basta.
+
+**Nessuna chiave a consumo per il lato sviluppo, per il momento.** L'esecutore è
+una sessione interattiva di Claude Code aperta sul PC di sviluppo, che gira
+sull'abbonamento già in uso. Niente `ANTHROPIC_API_KEY` per generare codice,
+nessun demone, nessun servizio da installare, niente in esecuzione sul VPS oltre
+a EMMA. Restano quindi fuori **da questa prima versione**:
+
+- Claude Code headless sul VPS di produzione;
+- un servizio systemd che lanci lavoro autonomo;
+- qualunque esecuzione che consumi una chiave a pagamento.
+
+È una scelta sul *quando*, non sul *se*: potrà cambiare, e il progetto è
+costruito perché cambiarla non costi una riscrittura (17.1.1).
+
+Una parte però non dipende dal pagamento. Il PC di sviluppo è **oggi l'unico
+posto dove il lavoro può realmente avvenire**: lì ci sono il repository con la
+sua storia, git configurato e la raggiungibilità di GitHub — che il VPS non ha,
+essendo solo IPv6. Anche pagando, un esecutore su quel server non riuscirebbe a
+pushare. Il server ospita EMMA; il PC ospita l'officina.
+
+Finché vale questo assetto, due conseguenze:
+
+- **Se la sessione non è aperta, non succede niente.** Non c'è un processo che
+  raccoglie i task in sua assenza. Il PC acceso con la sessione viva è parte
+  dell'architettura, e spegnerlo è l'interruttore generale.
+- **Il consumo è quello dell'abbonamento**, contato in uso della sessione e non
+  in token fatturati. È esattamente per questo che 17.4 esiste: non per
+  risparmiare denaro su una bolletta, ma per non bruciare la sessione in
+  risvegli a vuoto.
+
+Da qui anche la lettura corretta del cancello *"spesa su API a pagamento"* fra i
+quattro che hai scelto: allo stato attuale riguarda **EMMA**, cioè un eventuale
+passaggio dal tier gratuito di Groq alle API Anthropic a consumo. Il lato
+sviluppo, per ora, non ha una chiave da spendere; se un giorno l'avrà, quel
+cancello coprirà anche lui.
+
+### 17.1.1 — Cosa cambierebbe se un domani diventasse a pagamento
+
+Vale la pena fissarlo adesso, perché è quello che tiene la porta aperta: il
+progetto è **neutro rispetto all'esecutore**. La coda, i checkpoint, i tre tool
+di EMMA e il modo in cui le domande ti raggiungono non sanno chi stia
+lavorando dall'altra parte.
+
+| Pezzo | Se l'esecutore cambia |
+| --- | --- |
+| tabella `tasks` e macchina a stati | invariati |
+| i tre tool di EMMA (17.6) | invariati |
+| checkpoint 1/3/4/5 e loro semantica | invariati |
+| attesa a costo zero (17.4) | invariata come idea, cambia chi la esegue |
+| chi raccoglie e lavora | è l'unico pezzo che si sostituisce |
+
+Cambierebbe quindi una cosa sola: da "una sessione aperta che si risveglia" a
+"un esecutore che gira da sé". Sparirebbe il rischio principale — la sessione
+che muore senza che nessuno se ne accorga (17.8) — e comparirebbero i due che
+oggi non abbiamo: una chiave da custodire e una spesa da limitare.
+
+Resterebbe comunque da risolvere la raggiungibilità di GitHub, che è
+indipendente dal pagamento: o l'esecutore sta sul PC di sviluppo, o serve un
+host con IPv4. Non è un problema da affrontare adesso, ma è bene sapere che è
+lì e che non si compra con un abbonamento.
+
+### 17.2 — Il ciclo
+
+```
+ tu → EMMA        "vorrei che ricordassi i miei appuntamenti"
+        │
+        ▼
+ EMMA            riconosce una richiesta di sviluppo e chiede conferma
+        │        (oppure la scrivi esplicita: "sviluppo: ...")
+        ▼
+ tabella tasks   la richiesta resta lì, con le tue parole
+        │
+        ▼
+ io              me ne accorgo, leggo il codice, capisco
+        │
+        ├──▶ CHECKPOINT 1   "ho capito così, il piano è questo. Procedo?"
+        │
+        ▼
+ io              implemento, scrivo i test, verifico
+        │
+        ├──▶ CHECKPOINT 3   "fatto, test verdi, ecco il diff. Committo?"
+        │
+        ▼
+ io              commit locale
+        │
+        ├──▶ CHECKPOINT 4   "committato <hash>. Pusho?"
+        │
+        ▼
+ io              push su GitHub
+        │
+        ├──▶ CHECKPOINT 5   "pushato. Deployo sul VPS?"
+        │
+        ▼
+ io              deploy, servizio riavviato
+        │
+        ▼
+ EMMA            riparte con la capacità in più
+```
+
+I checkpoint sono **1, 3, 4, 5**: manca quello fra implementazione e commit
+perché lì non c'è una decisione tua — se i test falliscono li sistemo, non ti
+consulto. Il diff te lo mostro comunque, al checkpoint 3, che è il momento in
+cui puoi ancora dire "hai capito male" a costo zero.
+
+Ogni checkpoint chiede il permesso di **passare alla fase successiva**, non di
+confermare quella conclusa.
+
+### 17.3 — Come ti arrivano le domande senza che EMMA parli per prima
+
+È il pezzo che rende compatibili "una voce sola" e "nessun messaggio non
+richiesto". Le mie domande finiscono nella stessa tabella; EMMA te le riferisce
+**quando gliele chiedi tu**, e la tua risposta torna indietro per la stessa
+strada.
+
+```
+ tu:    EMMA, a che punto sono i lavori?
+ EMMA:  #3 — implementato, 53 test verdi. Committo?
+        #4 — ho capito che vuoi X. Procedo?
+        #5 — in attesa dalla fase 1.
+ tu:    sì al 3, il 4 no, intendevo altro
+ EMMA:  Registrato.
+```
+
+Il costo è la latenza: se non chiedi per sei ore, resto fermo sei ore. Ma il
+lavoro non si blocca del tutto — quello che sta prima del primo cancello
+prosegue, e si ferma solo la pubblicazione, che è esattamente ciò che deve
+fermarsi.
+
+Due attenuanti, entrambe compatibili con i vincoli:
+
+- **raggruppare**: un solo "a che punto sei?" risolve tutti i cancelli aperti,
+  come nell'esempio sopra;
+- **concedere in anticipo per singolo task**: *"il #4 portalo fino al push"*
+  lascia il default rigido e ti dà una corsia veloce quando sai già cosa vuoi.
+
+### 17.4 — Perché non costa di più
+
+Il punto su cui l'idea si sarebbe rotta. Se fossi io a controllare la coda ogni
+quindici minuti, pagheresti ogni risveglio a vuoto, e la quasi totalità lo
+sarebbe.
+
+Non serve che sia io a guardare. Un comando di shell in background fa il giro —
+`ssh` sul VPS, una `SELECT`, se non c'è niente dorme e riprova — e **finché
+dorme il modello non gira**: sta lavorando `bash`, che non consuma token. Quando
+trova qualcosa il comando termina, e la sua terminazione mi risveglia.
+
+Si consuma solo quando c'è lavoro vero: una giornata senza task costa zero
+invece di novantasei risvegli inutili.
+
+Trattandosi dell'abbonamento e non di una chiave a consumo (17.1), la cosa da
+proteggere non è una bolletta ma la **capienza della sessione**: ogni risveglio
+inutile consuma contesto e uso, e una sessione che deve restare aperta per
+giorni non se lo può permettere. Lo stesso meccanismo che eviterebbe la spesa
+evita l'esaurimento.
+
+Lato EMMA non cambia nulla: resta sul tier gratuito di Groq, e registrare un
+task è una chiamata a un tool, non una generazione.
+
+### 17.5 — Dove vivono i task
+
+**Nello stesso file SQLite della memoria** (`data/emma.db`), in una tabella
+`tasks`, gestita da un modulo separato con una connessione propria — non
+dentro `SqliteConversationMemory`, che ha un'altra responsabilità.
+
+L'alternativa era un secondo file `data/tasks.db`. L'ho scartata per un motivo
+concreto: tutto quello che è stato costruito il 31 agosto — controllo di
+integrità all'avvio, snapshot con `VACUUM INTO`, ripristino dalla copia sana,
+backup consistente — vale **per quel file**. Un secondo database o duplicherebbe
+tutta quella macchina o ne resterebbe scoperto, e sarebbe scoperto in silenzio.
+La modalità WAL rende sicuro l'accesso concorrente, quindi la mia lettura via
+SSH non disturba il servizio che ci scrive.
+
+Il rovescio da accettare: se il database venisse ripristinato da uno snapshot,
+tornerebbero indietro anche i task. È coerente, ed è meglio dell'alternativa.
+
+Schema minimo:
+
+| Colonna | Cosa contiene |
+| --- | --- |
+| `id` | progressivo, è il numero con cui ne parli a EMMA |
+| `created_at`, `updated_at` | quando |
+| `request` | la richiesta **con le tue parole**, non riassunta |
+| `stage` | dove siamo: `nuovo`, `capito`, `committato`, `pushato`, `deployato` |
+| `status` | `da_prendere`, `attende_te`, `in_corso`, `chiuso`, `abbandonato` |
+| `note` | quello che ti dico a questo checkpoint |
+| `answer` | la tua risposta, come EMMA l'ha registrata |
+
+### 17.6 — Cosa serve a EMMA (è v0.3)
+
+Tre tool, tutti piccoli:
+
+- **`commissiona_sviluppo(descrizione)`** — inserisce un task. Ci si arriva in
+  due modi: il prefisso esplicito `sviluppo: ...`, oppure il riconoscimento del
+  modello seguito da una tua conferma. Il secondo usa `gpt-oss-120b` per quello
+  che sa fare — capire un'intenzione — e non per decidere da solo: se sbaglia
+  ti costa un "no".
+- **`stato_lavori()`** — elenca i task che attendono te, con le mie domande.
+- **`rispondi(id, testo)`** — registra la tua risposta.
+
+Sono esattamente i primi strumenti concreti per il router agentico, che aspetta
+tool dalla v0.1: il ciclo tool-use c'è già ed è testato, la lista è vuota.
+
+### 17.7 — Il paradosso dell'avvio
+
+Il tool che permette a EMMA di commissionare sviluppo va scritto nel modo
+normale, da me con te al PC. **Il primo anello non può auto-generarsi.** Da lì
+in poi il ciclo si chiude e ogni capacità successiva può arrivare per quella
+strada.
+
+### 17.8 — Cosa può andare storto
+
+- **La sessione muore** (riavvio, crash, contesto esaurito) e il comando in
+  attesa muore con lei: tu continui a commissionare e nessuno raccoglie. È il
+  rischio principale, ed è strutturale — non esistendo un servizio (17.1), non
+  c'è nulla che riparta da solo. Serve un modo per accorgersene: un `last_seen`
+  che aggiorno a ogni risveglio e che EMMA ti riferisce quando chiedi lo stato,
+  così *"ultimo contatto: due giorni fa"* ti dice che la sessione è da
+  riaprire.
+- **Il contesto si esaurisce** su una sessione lunga: ricordo le decisioni, non
+  ogni dettaglio. `SESSIONS.md` e `ROADMAP.md` sono la memoria vera e vanno
+  aggiornati spesso, non a fine sessione.
+- **Il modello debole sbaglia il riconoscimento**: contenuto dalla conferma.
+- **Il task è ambiguo**: il checkpoint 1 esiste per questo. Chiedo, non
+  indovino.
+- **La chiave SSH sul PC** dà accesso al VPS. È già così oggi, ma in questo
+  scenario la sessione la usa da sola: vale la pena che sia una chiave dedicata
+  con `command=` ristretto, non quella di amministrazione.
+
+### 17.9 — Cosa resta fuori, deliberatamente
+
+- **EMMA non conosce il codice.** Lei è l'accettazione, io l'officina. Darle in
+  pasto il repository a ogni turno costerebbe token per un giudizio che rifarei
+  comunque io, che ho davanti storia, test e roadmap.
+- **Nessun deploy automatico.** È il checkpoint 5, sempre.
+- **EMMA non propone miglioramenti di sua iniziativa.** Registra i tuoi.
+- **Nessun secondo bot.**
+
+**Verdetto: da fare come v0.3**, nell'ordine 17.6 → 17.5 → 17.4. Il valore non
+è l'automazione — venti minuti di lavoro restano venti minuti — ma il fatto che
+un'idea avuta lontano dalla tastiera non si perda, e che il tuo giudizio entri
+quattro volte invece che mai.
+
+---
+
 ## Riepilogo dei verdetti
 
 | # | Voce | Verdetto |
@@ -957,6 +1230,7 @@ resta la leva sbagliata.
 | 16.2 | WAL + `integrity_check` all'avvio | **fatto** (31/08/2026), con ripristino da snapshot |
 | 16.3 | Mirror automatico generico | non implementato: si ripristina su diagnosi, non su sintomo (16.5) |
 | 16.4 | Snapshot periodici | fase futura, se la finestra di perdita risultasse troppo larga |
+| 17 | EMMA committente del proprio sviluppo | **da fare come v0.3**: tre tool, coda nel database, checkpoint 1/3/4/5 |
 
 La voce 5 è stata implementata nella v0.1.x (retry solo sugli errori
 transitori). Le 16.1 e 16.2 sono state implementate il 31 agosto 2026. Tutto il

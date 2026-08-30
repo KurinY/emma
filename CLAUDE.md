@@ -149,3 +149,33 @@ git grep -in "C:\\Users\\" -- .
 ```
 
 If any match is found: fix it first, then push. Never push and fix later.
+
+## 8. Ask before moving to the next step
+
+Work in stages, and stop between them. Do not chain several stages together
+because they all seem obviously right — the user's judgement is meant to land
+between them, not only at the end.
+
+The stages of a piece of work, and what to say at each:
+
+| Stage | Report, then ask |
+| --- | --- |
+| **Understood** | your reading of the request and the plan — *before writing a line* |
+| **Implemented and committed** | what changed, the test and lint result, the diff — ask before committing |
+| **Committed** | the commit and its message — ask before pushing |
+| **Pushed** | ask before deploying |
+
+There is deliberately no gate between implementing and committing beyond the
+one above: if tests fail, fix them — that is not a decision for the user. But
+the diff is always shown before the commit, because that is the last moment a
+misunderstanding costs nothing.
+
+The **Understood** stage is the one that matters most and the one most easily
+skipped. A request that seems obvious is exactly the kind that gets
+misread — say what you are about to do before you do it, and let the user stop
+you cheaply.
+
+This rule holds whether the user is at the keyboard or reachable only through a
+message. Full permissions on the machine — so that nothing blocks where nobody
+can click — do not remove the need to ask; they move the asking into the
+conversation. The two are different layers, and only the first one is waived.
