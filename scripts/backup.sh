@@ -62,32 +62,104 @@ read_env() {
 
 # The real environment wins over .env, which is what makes the one-off override
 # in the usage note above work.
-BACKUP_DIR="${BACKUP_DIR:-$(read_env BACKUP_DIR /mnt/backup/emma)}"
-BACKUP_KEEP="${BACKUP_KEEP:-$(read_env BACKUP_KEEP 14)}"
+DEFAULT_BACKUP_DIR=/mnt/backup/emma
+FALLBACK_BACKUP_DIR=/var/backups/emma
 
+BACKUP_KEEP="${BACKUP_KEEP:-$(read_env BACKUP_KEEP 14)}"
 [[ "${BACKUP_KEEP}" =~ ^[0-9]+$ && "${BACKUP_KEEP}" -ge 1 ]] \
     || die "BACKUP_KEEP must be an integer >= 1, got '${BACKUP_KEEP}'"
 command -v tar >/dev/null || die "tar is not installed"
+
+# Was a destination chosen deliberately, in the environment or in .env?  An
+# explicit choice is honoured as given; only the default gets second-guessed.
+BACKUP_DIR_CHOSEN=1
+if [[ -z "${BACKUP_DIR:-}" ]]; then
+    BACKUP_DIR="$(read_env BACKUP_DIR "")"
+    [[ -n "${BACKUP_DIR}" ]] || { BACKUP_DIR="${DEFAULT_BACKUP_DIR}"; BACKUP_DIR_CHOSEN=0; }
+fi
+
+# --------------------------------------------------------------------------- #
+# Where the archive goes.
+#
+# The second disk is the right place: a backup on the same disk as the original
+# protects against your own mistakes but not against the disk dying.  It is not
+# always there, though, and a backup that does not happen is worse than one in a
+# mediocre place -- so a missing or unmounted second disk falls back to the
+# system disk instead of aborting.
+#
+# The subtlety is that /mnt/backup can exist as an ordinary directory while the
+# disk is not mounted.  Writing there would appear to work and would quietly
+# fill the system disk; worse, the day the disk is finally mounted those
+# archives disappear underneath it, still occupying space nobody can see.  So
+# the default destination is used only when it really is a separate filesystem.
+# --------------------------------------------------------------------------- #
+nearest_existing() {
+    local path="$1"
+    while [[ ! -e "${path}" && "${path}" != "/" ]]; do path="$(dirname "${path}")"; done
+    printf '%s' "${path}"
+}
+
+on_its_own_disk() {
+    local here root
+    here="$(stat -c %d "$(nearest_existing "$1")" 2>/dev/null)" || return 1
+    root="$(stat -c %d / 2>/dev/null)" || return 1
+    [[ "${here}" != "${root}" ]]
+}
+
+# 0700 on the directory and 0600 on the archives: the tarball contains .env,
+# hence the API key.  A dry run answers the same question without creating
+# anything, since --dry-run promises to write nothing at all.
+usable() {
+    if [[ "${DRY_RUN}" -eq 1 ]]; then
+        [[ -d "$1" ]] && [[ -w "$1" ]] && return 0
+        [[ ! -e "$1" ]] && [[ -w "$(nearest_existing "$1")" ]]
+        return
+    fi
+    mkdir -p "$1" 2>/dev/null || return 1
+    chmod 700 "$1" 2>/dev/null || true
+    [[ -w "$1" ]]
+}
+
+FELL_BACK=0
+if [[ "${BACKUP_DIR_CHOSEN}" -eq 0 ]] && ! on_its_own_disk "${BACKUP_DIR}"; then
+    log "warning: ${BACKUP_DIR} is not on a separate disk (is the second disk mounted?)"
+    BACKUP_DIR="${FALLBACK_BACKUP_DIR}"
+    FELL_BACK=1
+elif ! usable "${BACKUP_DIR}"; then
+    log "warning: cannot write to ${BACKUP_DIR}, falling back to ${FALLBACK_BACKUP_DIR}"
+    BACKUP_DIR="${FALLBACK_BACKUP_DIR}"
+    FELL_BACK=1
+fi
+
+usable "${BACKUP_DIR}" \
+    || die "cannot write to ${BACKUP_DIR} either; no destination left, no backup taken"
+
+# Describe where the archive actually landed, checked rather than assumed: an
+# explicitly chosen destination can sit on the system disk just as easily.
+if on_its_own_disk "${BACKUP_DIR}"; then
+    BACKUP_LOCATION="separate disk"
+elif [[ "${FELL_BACK}" -eq 1 ]]; then
+    BACKUP_LOCATION="system disk, fallback - no separate disk available"
+else
+    BACKUP_LOCATION="system disk, as configured"
+fi
 
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 ARCHIVE="${BACKUP_DIR}/${PROJECT_NAME}-${TIMESTAMP}.tar.gz"
 
 log "project:     ${PROJECT_DIR}"
-log "destination: ${BACKUP_DIR}"
+log "destination: ${BACKUP_DIR} [${BACKUP_LOCATION}]"
 log "rotation:    keep ${BACKUP_KEEP} archives"
+
+if [[ "${BACKUP_LOCATION}" != "separate disk" ]]; then
+    log "note: this archive lives on the same disk as the installation, so it"
+    log "      protects against mistakes but not against that disk failing"
+fi
 
 if [[ "${DRY_RUN}" -eq 1 ]]; then
     log "dry run: would write ${ARCHIVE}"
     exit 0
 fi
-
-# --------------------------------------------------------------------------- #
-# Destination.  0700 on the directory and 0600 on the archives: the tarball
-# contains .env, hence the API key.
-# --------------------------------------------------------------------------- #
-mkdir -p "${BACKUP_DIR}" || die "cannot create ${BACKUP_DIR} (is the disk mounted?)"
-chmod 700 "${BACKUP_DIR}"
-[[ -w "${BACKUP_DIR}" ]] || die "${BACKUP_DIR} is not writable by $(id -un)"
 
 # --------------------------------------------------------------------------- #
 # Manifest: what this snapshot is, and where it came from.
@@ -149,6 +221,7 @@ project dir: ${PROJECT_DIR}
 git commit:  ${GIT_COMMIT}
 python:      $(command -v python3 >/dev/null && python3 --version 2>&1 || echo "not found")
 database:    ${DB_STATUS}
+written to:  ${BACKUP_DIR} [${BACKUP_LOCATION}]
 
 Restore:
   1. tar -xzf <this-archive>.tar.gz -C /tmp

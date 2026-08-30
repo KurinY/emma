@@ -114,12 +114,39 @@ Due difetti ulteriori trovati **durante** il deploy e corretti:
    dell'utente `emma`, quindi `~/.cache/pip` finiva nel `tar`. Escluso:
    archivio di produzione da **23 MB a 340 KB**.
 
-**Pending:**
-- [ ] **Il server non ha backup configurati**: nessun `BACKUP_DIR` nel `.env`,
-      `/mnt/backup` inesistente (VPS a disco singolo), timer mai installato.
-      Le unit sono ora copiate ma il timer non è abilitato. Serve una decisione
-      dell'utente su dove scrivere gli archivi (`.env` lo tocca solo lui).
-- [ ] Prova finale da Telegram dopo il passaggio alla unit blindata.
+**Done (continued) — backup con ripiego automatico:**
+
+Richiesta: backup sul disco secondario se c'è, sul primario altrimenti, ma
+**deve comunque avvenire**. Implementato in `backup.sh`:
+- `BACKUP_DIR` esplicito (ambiente o `.env`) → onorato com'è, ripiego solo se
+  non scrivibile
+- nessun `BACKUP_DIR` → `/mnt/backup/emma` **solo se è davvero un filesystem
+  separato** (confronto del device con `/`), altrimenti `/var/backups/emma`
+- la scelta e il motivo finiscono nel log e nel `MANIFEST.txt`
+- il controllo è sul mount, non sull'esistenza della directory: scrivere in un
+  `/mnt/backup` non montato riempirebbe il disco di sistema e quegli archivi
+  sparirebbero sotto il mount il giorno in cui il disco venisse collegato
+- `--dry-run` non crea più nulla (prima il ripiego avrebbe fatto `mkdir`)
+
+Correzioni alla unit, entrambe necessarie perché il ripiego funzionasse:
+- rimosso `RequiresMountsFor=/mnt/backup`, che trasformava l'assenza del disco
+  in un job fallito — l'opposto della garanzia richiesta
+- `ReadWritePaths=-/mnt/backup /var/backups /opt/emma/data` (il `-` rende
+  opzionale la prima: senza, systemd rifiuta di partire se non esiste)
+- `ExecStartPre=+/usr/bin/install -d -o emma -g emma -m 0700 /var/backups/emma`:
+  `/var/backups` è di root, quindi l'utente `emma` non poteva crearci dentro e
+  il ripiego era irraggiungibile su una macchina appena installata
+
+Verificato in produzione partendo da `/var/backups/emma` inesistente: il
+servizio l'ha creata `emma:emma 0700`, il backup è avvenuto (343 KB), il
+manifest dichiara destinazione e motivo, la cronologia è recuperabile
+(integrità `ok`). Rilevazione del disco separato provata con `/dev/shm`.
+**Timer abilitato**, prossima esecuzione alle 03:37.
+
+**Confermato dall'utente:** EMMA risponde su Telegram dopo il passaggio alla
+unit blindata (il database è passato da 8 a 12 messaggi durante la sessione).
+
+**Pending:** nessuno.
 
 ---
 

@@ -10,6 +10,28 @@ change will always be listed here.
 
 ## [Unreleased]
 
+### Changed
+
+- **The backup now always happens.** `scripts/backup.sh` prefers the second
+  disk and falls back to `/var/backups/emma` on the system disk when there is
+  none, instead of aborting. It says which it used, and why, in the log and in
+  `MANIFEST.txt`; an archive beside the original protects against mistakes but
+  not against that disk failing, so the compromise is stated rather than
+  implied. An explicitly configured `BACKUP_DIR` is honoured as given and only
+  falls back if it turns out to be unwritable.
+- The default destination is used only when it genuinely is a separate
+  filesystem, not merely when the directory exists. Writing into an unmounted
+  `/mnt/backup` would appear to work while filling the system disk, and the
+  archives would then vanish under the mount point the day the disk was
+  attached, still occupying space nothing could account for.
+- `emma-backup.service` no longer declares `RequiresMountsFor=/mnt/backup`,
+  which turned a missing backup disk into a failed job — the opposite of the
+  guarantee above. It creates the fallback directory with the right ownership
+  via `ExecStartPre`, since `/var/backups` is root-owned and the service user
+  could not create a subdirectory there on a fresh machine.
+- `BACKUP_DIR` is now commented out in `.env.example`: leaving it unset lets the
+  script choose, which is the better default.
+
 ### Added
 
 - **Database integrity and self-healing.** `SqliteConversationMemory.open()`

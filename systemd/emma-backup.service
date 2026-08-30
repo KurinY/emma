@@ -17,10 +17,14 @@
 [Unit]
 Description=EMMA backup (dated archive with rotation)
 Documentation=file:/opt/emma/docs/GUIDA.pdf
-# Pointless to snapshot a backup disk that is not mounted yet.
-# PATH: the mount point of the backup disk, i.e. BACKUP_DIR in .env.
+# Wait for local filesystems, so a mounted backup disk is seen as mounted.
+#
+# Deliberately NOT RequiresMountsFor=/mnt/backup: that turns a missing or
+# unmounted backup disk into a failed job, and a machine without a second disk
+# would then never be backed up at all. The script prefers the second disk and
+# falls back to the system disk on its own, saying so in the log and in the
+# manifest - a backup in a mediocre place beats no backup.
 After=local-fs.target
-RequiresMountsFor=/mnt/backup
 
 [Service]
 Type=oneshot
@@ -29,6 +33,16 @@ Group=emma
 
 # PATH: installation directory and backup script.
 WorkingDirectory=/opt/emma
+
+# Make sure the fallback destination exists and belongs to the service user.
+# /var/backups is root-owned, so emma cannot create a subdirectory there on its
+# own; without this line the fallback would be unreachable on a fresh machine
+# and a host with no second disk would end up with no backups at all - which is
+# the one outcome this whole arrangement exists to prevent. The leading '+' runs
+# the command with full privileges, outside User= and the sandbox. It is
+# idempotent, and harmless when the second disk is present and used instead.
+ExecStartPre=+/usr/bin/install -d -o emma -g emma -m 0700 /var/backups/emma
+
 ExecStart=/opt/emma/scripts/backup.sh
 
 StandardOutput=journal
@@ -52,13 +66,19 @@ RestrictSUIDSGID=true
 LockPersonality=true
 CapabilityBoundingSet=
 AmbientCapabilities=
-# PATH: the destination directory, i.e. BACKUP_DIR in .env, and the database
-# directory. ProtectSystem=strict makes the whole filesystem read-only, so these
-# are the two holes we punch.
+# PATH: the two possible destinations and the database directory.
+# ProtectSystem=strict makes the whole filesystem read-only, so these are the
+# holes we punch.
 #
-# The second one is not obvious: the backup only *reads* the database, but the
-# database runs in WAL mode, and a WAL reader has to update the -shm index file
-# beside it. Without write access there, sqlite3 cannot open the file at all and
-# the archive would silently go out without the conversation history.
-# If you moved the database with MEMORY_DB_PATH, point this at its directory.
-ReadWritePaths=/mnt/backup /opt/emma/data
+# The leading '-' on /mnt/backup means "if it exists": systemd refuses to start
+# a unit whose ReadWritePaths is missing, and on a machine with no second disk
+# that directory legitimately does not exist. /var/backups is the fallback the
+# script uses in that case and is always present on Debian and Ubuntu.
+#
+# The database directory is the non-obvious one: the backup only *reads* the
+# database, but it runs in WAL mode, and a WAL reader has to update the -shm
+# index file beside it. Without write access there, sqlite3 cannot open the file
+# at all and the archive would silently go out without the conversation history.
+# If you moved the database with MEMORY_DB_PATH, or set BACKUP_DIR somewhere
+# else, add those directories here.
+ReadWritePaths=-/mnt/backup /var/backups /opt/emma/data

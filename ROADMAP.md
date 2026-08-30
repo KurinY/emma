@@ -71,8 +71,8 @@ Found during the production deploy:
 - [x] Fix: pip's HTTP cache was archived nightly (23 MB → 340 KB per archive)
 - [x] Deploy on the production VPS and verify (hardened units now in place,
       snapshot written at start-up, history intact, backup verified end-to-end)
-- [ ] Configure backups on the VPS: single disk, no `BACKUP_DIR`, timer not
-      enabled — needs a decision on where archives go
+- [x] Backups always happen: second disk when there is one, `/var/backups/emma`
+      otherwise, never nothing. Timer enabled and verified on the VPS.
 
 ---
 

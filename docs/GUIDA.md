@@ -227,10 +227,26 @@ secondo disco fisico è un dispositivo da montare in un punto dell'albero delle
 directory. Il risultato è lo stesso — dati su un disco diverso da quello di
 sistema — ma la procedura è questa.
 
-**Se non hai un secondo disco**, puoi saltare al capitolo 2 e lasciare
-`BACKUP_DIR` sul disco di sistema: i backup funzioneranno lo stesso e ti
-proteggeranno da errori tuoi, ma non dal guasto del disco. È un compromesso da
-fare consapevolmente, e da correggere appena hai un disco in più.
+**Se non hai un secondo disco**, salta pure al capitolo 2: non devi configurare
+niente. `backup.sh` sceglie da sé la destinazione, con questa regola:
+
+| Situazione | Dove scrive |
+| --- | --- |
+| `/mnt/backup` è davvero un disco separato | `/mnt/backup/emma` |
+| non c'è un secondo disco montato | `/var/backups/emma`, sul disco di sistema |
+| hai impostato `BACKUP_DIR` nel `.env` | lì, comunque, senza discutere |
+
+Il backup **avviene sempre**: un archivio in un posto mediocre vale più di un
+archivio che non esiste. Quando ripiega sul disco di sistema lo dice nel log e
+nel manifesto, perché resta un compromesso — ti protegge dai tuoi errori, non
+dal guasto del disco.
+
+> **Perché non scrivere in `/mnt/backup` quando il disco non è montato.**
+> Sembrerebbe funzionare, e invece riempirebbe il disco di sistema senza dirlo;
+> peggio, il giorno in cui montassi davvero il disco quegli archivi
+> sparirebbero sotto il punto di mount, continuando a occupare spazio che
+> nessuno riesce più a vedere. Per questo lo script controlla che sia un
+> filesystem separato, non che la directory esista.
 
 ### 1.7.1 Identificare il disco
 
@@ -1098,17 +1114,38 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now emma-backup.timer
 ```
 
-Se `BACKUP_DIR` non è sotto `/mnt/backup`, correggi `ReadWritePaths=` e
-`RequiresMountsFor=` in `emma-backup.service` (righe marcate `# PATH:`) prima di
-copiarlo: con `ProtectSystem=strict` il filesystem è in sola lettura per il
-servizio, e senza quella riga il backup fallisce con un permesso negato.
+La unit copre già entrambe le destinazioni possibili (`/mnt/backup` se c'è,
+`/var/backups` altrimenti) e crea da sé `/var/backups/emma` con i permessi
+giusti, così il ripiego funziona anche su una macchina appena installata. Se
+invece hai impostato un `BACKUP_DIR` che non sta in nessuna delle due, aggiungi
+quella directory a `ReadWritePaths=` in `emma-backup.service` (riga marcata
+`# PATH:`) prima di copiarlo: con `ProtectSystem=strict` il filesystem è in sola
+lettura per il servizio, e senza quella riga il backup fallisce con un permesso
+negato.
+
+> Se lanci `scripts/backup.sh` **a mano** come utente `emma` prima che il timer
+> sia mai partito, la directory di ripiego potrebbe non esistere ancora:
+> `sudo install -d -o emma -g emma -m 700 /var/backups/emma` la crea. Passando
+> dal servizio (`systemctl start emma-backup.service`) non serve.
 
 Fai subito una prova a mano, senza aspettare le 3:30:
 
 ```bash
 sudo systemctl start emma-backup.service
 journalctl -u emma-backup.service -n 30 --no-pager
-ls -lh /mnt/backup/emma/
+```
+
+Nel log, la riga `destination:` dice dove è finito l'archivio e perché:
+
+```
+destination: /mnt/backup/emma [separate disk]
+destination: /var/backups/emma [system disk, fallback - no separate disk available]
+```
+
+Guarda lì e poi elenca quella directory:
+
+```bash
+ls -lh /mnt/backup/emma/     # oppure /var/backups/emma/
 ```
 
 **Verifica.** Deve esserci un file `emma-AAAAMMGG-HHMMSS.tar.gz` con permessi
@@ -1657,8 +1694,13 @@ findmnt /mnt/backup                     # il disco è montato?
 sudo -u emma df -h /mnt/backup          # c'è spazio?
 ```
 
-- **`cannot create ... (is the disk mounted?)`** → il disco non è montato:
-  `sudo mount -a` e controlla `/etc/fstab` (paragrafo 1.7.3).
+- **`warning: ... is not on a separate disk`** → non è un errore: il secondo
+  disco non è montato e il backup è finito su `/var/backups/emma`. Se ti
+  aspettavi il disco esterno, `sudo mount -a` e controlla `/etc/fstab`
+  (paragrafo 1.7.3); poi il backup successivo tornerà da solo sul disco giusto.
+- **`no destination left, no backup taken`** → nemmeno il ripiego è scrivibile.
+  Controlla che `/var/backups` esista e che `emma` possa scriverci, e che
+  `ReadWritePaths=` nella unit copra la destinazione (paragrafo 4.7).
 - **`Permission denied`** → o la directory non appartiene a `emma`, o manca
   `ReadWritePaths=` nella unit (paragrafo 4.7).
 - **Il timer non compare in `list-timers`** → non è abilitato:
