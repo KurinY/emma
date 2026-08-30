@@ -2,7 +2,7 @@
 title: "EMMA — Guida completa"
 subtitle: "Assistente personale self-hosted · versione 1, solo testo"
 version: "v0.1.0"
-date: "29 agosto 2026"
+date: "31 agosto 2026"
 lang: it
 ---
 
@@ -1589,6 +1589,6 @@ sudo -u emma git -C /opt/emma checkout main
 
 ---
 
-*EMMA v0.1.0 — guida aggiornata al 29 agosto 2026. Il sorgente di questo
+*EMMA v0.1.0 — guida aggiornata al 31 agosto 2026. Il sorgente di questo
 documento è `docs/GUIDA.md`: modificalo lì e rigenera il PDF, così le due
 versioni non divergono.*
