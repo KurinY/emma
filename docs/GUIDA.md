@@ -1564,9 +1564,15 @@ sudo -u emma git -C /opt/emma checkout main
 | `TELEGRAM_BOT_TOKEN` | sì | — | da @BotFather; è un segreto |
 | `TELEGRAM_ALLOWED_USER_ID` | sì | — | numero, non username; da @userinfobot |
 | `MAX_HISTORY_MESSAGES` | no | `20` | messaggi nella finestra; incide sul costo |
+| `MEMORY_DB_PATH` | no | `data/emma.db` | file SQLite della storia; creato automaticamente |
 | `SYSTEM_PROMPT_PATH` | no | `prompts/system_prompt.txt` | relativo alla directory del progetto |
 | `BACKUP_DIR` | no | `/mnt/backup/emma` | letto da `backup.sh` |
 | `BACKUP_KEEP` | no | `14` | archivi conservati dalla rotazione |
+
+> **Nota:** il file SQLite (`data/emma.db`) contiene la cronologia delle
+> conversazioni e non deve mai essere incluso in un commit Git — `.gitignore`
+> lo esclude già. Per azzerare la memoria basta cancellare il file e riavviare
+> il servizio.
 
 # Appendice C — Dove guardare quando qualcosa non torna
 

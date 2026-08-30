@@ -52,6 +52,9 @@ DEFAULT_MAX_HISTORY_MESSAGES = 20
 #: Default location of the personality file, relative to the project root.
 DEFAULT_SYSTEM_PROMPT_PATH = "prompts/system_prompt.txt"
 
+#: Default path of the SQLite database, relative to the project root.
+DEFAULT_MEMORY_DB_PATH = "data/emma.db"
+
 #: Default backup destination on the server.  Chapter 1 of ``docs/GUIDA.pdf``
 #: explains how to mount a second physical disk there.
 DEFAULT_BACKUP_DIR = "/mnt/backup/emma"
@@ -84,6 +87,7 @@ class Config:
         telegram_allowed_user_id: The single Telegram user ID allowed to talk
             to the bot.  Every other sender is ignored without a reply.
         max_history_messages: Size of the rolling conversation window.
+        memory_db_path: Absolute path of the SQLite database file.
         system_prompt_path: Absolute path of the personality file.
         backup_dir: Absolute path where ``scripts/backup.sh`` writes archives.
         backup_keep: How many archives the rotation keeps.
@@ -97,6 +101,7 @@ class Config:
     telegram_bot_token: str
     telegram_allowed_user_id: int
     max_history_messages: int
+    memory_db_path: Path
     system_prompt_path: Path
     backup_dir: Path
     backup_keep: int
@@ -227,6 +232,7 @@ def load_config(env_file: Path | None = None) -> Config:
             "MAX_HISTORY_MESSAGES",
             _optional("MAX_HISTORY_MESSAGES", str(DEFAULT_MAX_HISTORY_MESSAGES)),
         ),
+        memory_db_path=_resolve(_optional("MEMORY_DB_PATH", DEFAULT_MEMORY_DB_PATH)),
         system_prompt_path=_resolve(_optional("SYSTEM_PROMPT_PATH", DEFAULT_SYSTEM_PROMPT_PATH)),
         backup_dir=_resolve(_optional("BACKUP_DIR", DEFAULT_BACKUP_DIR)),
         backup_keep=_positive_int(

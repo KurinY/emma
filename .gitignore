@@ -22,6 +22,10 @@ env/
 htmlcov/
 .mypy_cache/
 
+# --- Data -------------------------------------------------------------------
+# The SQLite database contains conversation history and must never be committed.
+data/
+
 # --- Local artefacts --------------------------------------------------------
 # Backups live outside the repository (BACKUP_DIR, D:\EmmaBackups); these
 # patterns only catch copies that end up here by accident.

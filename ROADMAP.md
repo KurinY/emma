@@ -24,19 +24,19 @@ Propose new items in `REVISIONE.md` first; move them here once approved.
 
 ---
 
-## v0.2.0 — Persistent memory (SQLite)
+## v0.2.0 — Persistent memory (SQLite) ✓ complete
 
 Goal: conversation history survives a restart. Zero change to the router or
 the adapter — only a new `ConversationMemory` implementation swapped in.
 
-- [ ] Design SQLite schema (one table: `messages(conversation_id, role, content, ts)`)
-- [ ] Add `MEMORY_DB_PATH` to `config.py` and `.env.example`
-- [ ] Implement `SqliteConversationMemory(ConversationMemory)` in `core/memory.py`
-- [ ] Wire it in `main.py` (replace `InMemoryConversationMemory`)
-- [ ] Tests: `test_memory_sqlite.py` (window pruning, persistence across instances)
+- [x] Design SQLite schema (one table: `messages(conv_id, role, content, ts)`)
+- [x] Add `MEMORY_DB_PATH` to `config.py` and `.env.example`
+- [x] Implement `SqliteConversationMemory` in `core/memory.py` via `aiosqlite`
+- [x] Wire it in `main.py` (open/close in lifespan, replaces InMemory)
+- [x] Tests: `test_memory_sqlite.py` — 9 tests including persistence across reopen
 - [ ] Update `docs/GUIDA.md` (new variable, first-run DB creation)
-- [ ] Update `CHANGELOG.md` and this ROADMAP
-- [ ] Backup + commit
+- [x] Update `CHANGELOG.md` and this ROADMAP
+- [ ] Backup + commit + deploy
 
 ---
 

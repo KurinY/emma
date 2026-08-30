@@ -27,7 +27,7 @@ from fastapi import FastAPI
 from adapters.telegram import TelegramAdapter
 from config import Config, ConfigError, load_config
 from core.llm import AnthropicLanguageModel, GroqLanguageModel
-from core.memory import InMemoryConversationMemory
+from core.memory import SqliteConversationMemory
 from core.router import Router
 
 logger = logging.getLogger("emma")
@@ -79,7 +79,10 @@ def create_app(config: Config) -> FastAPI:
     else:
         llm = AnthropicLanguageModel(api_key=config.anthropic_api_key, model=config.anthropic_model)
         active_model = config.anthropic_model
-    memory = InMemoryConversationMemory(max_messages=config.max_history_messages)
+    memory = SqliteConversationMemory(
+        db_path=config.memory_db_path,
+        max_messages=config.max_history_messages,
+    )
     router = Router(llm=llm, memory=memory, system_prompt=system_prompt, tools=())
     telegram = TelegramAdapter(
         token=config.telegram_bot_token,
@@ -91,11 +94,13 @@ def create_app(config: Config) -> FastAPI:
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         """Start the Telegram adapter with the server and stop it with it."""
         logger.info(
-            "starting emma (provider=%s, model=%s, history=%d messages)",
+            "starting emma (provider=%s, model=%s, history=%d messages, db=%s)",
             config.llm_provider,
             active_model,
             config.max_history_messages,
+            config.memory_db_path,
         )
+        await memory.open()
         await telegram.start()
         try:
             yield
@@ -103,6 +108,7 @@ def create_app(config: Config) -> FastAPI:
             logger.info("shutting down")
             await telegram.stop()
             await llm.aclose()
+            await memory.close()
 
     app = FastAPI(
         title="EMMA",

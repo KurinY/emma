@@ -12,6 +12,15 @@ change will always be listed here.
 
 ### Added
 
+- **Persistent memory (SQLite)**: conversation history now survives process
+  restarts. `SqliteConversationMemory` in `core/memory.py` stores messages in
+  an SQLite file via `aiosqlite`; the sliding window and role-ordering invariant
+  are enforced on every write, identical to the in-memory implementation.
+- `MEMORY_DB_PATH` env var selects the database file (default `data/emma.db`).
+- `aiosqlite==0.20.0` added to `requirements.txt`.
+- `tests/test_memory_sqlite.py`: 9 tests including persistence-across-reopen.
+- `data/` added to `.gitignore` (database file must never be committed).
+
 - **Multi-provider LLM support**: select the AI backend at start-up via the
   `LLM_PROVIDER` environment variable (`"anthropic"` or `"groq"`).
 - `core/llm.py`: new `GroqLanguageModel` class (OpenAI-compatible API) with
