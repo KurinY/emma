@@ -592,17 +592,33 @@ in modo pulito invece di ucciderlo a metà di un update.
 Nel `REVISIONE.md` trovi la discussione critica di questa scelta, insieme
 all'alternativa senza web server.
 
-## 2.8 Il modello scelto
+## 2.8 Il provider e il modello
 
-Il default è **Claude Sonnet 4.6** (`claude-sonnet-4-6`), che offre il miglior
-equilibrio tra qualità e costo per un assistente conversazionale personale:
-notevolmente più capace di Haiku, abbastanza veloce per la chat e abbastanza
-economico per un uso personale con traffico leggero.
+EMMA supporta due backend LLM selezionabili tramite la variabile `LLM_PROVIDER`:
 
-`ANTHROPIC_MODEL` accetta qualunque identificativo valido — è una riga di `.env`
-e un riavvio del servizio, senza modifiche al codice. Se vuoi la massima
-velocità a costo minimo usa `claude-sonnet-4-6`; se vuoi la massima
-capacità usa `claude-opus-4-7`.
+| Valore | Backend | Costo |
+| --- | --- | --- |
+| `anthropic` (default) | Claude via Anthropic API | a pagamento per token |
+| `groq` | Llama / GPT-OSS via Groq API | tier gratuito disponibile |
+
+### Anthropic
+
+Il default è **Claude Sonnet 4.6** (`claude-sonnet-4-6`). `ANTHROPIC_MODEL`
+accetta qualunque identificativo valido — cambia la riga in `.env` e riavvia
+il servizio, senza modifiche al codice.
+
+### Groq (free tier)
+
+Imposta `LLM_PROVIDER=groq` e fornisci una chiave gratuita da
+[console.groq.com](https://console.groq.com). Il modello di default è
+`openai/gpt-oss-120b`; puoi cambiarlo con `GROQ_MODEL`. I modelli disponibili
+dipendono dal piano dell'account — per listare quelli accessibili:
+
+```bash
+curl -s -H "Authorization: Bearer $GROQ_API_KEY" \
+  https://api.groq.com/openai/v1/models | python3 -c \
+  "import json,sys; [print(m['id']) for m in json.load(sys.stdin)['data']]"
+```
 
 \newpage
 
@@ -869,19 +885,33 @@ sudo -u emma nano /opt/emma/.env
 `600` significa: solo l'utente `emma` può leggerlo e scriverlo. Nessun altro
 utente della macchina, nemmeno il tuo, può vedere la chiave API senza `sudo`.
 
-Compila i tre valori obbligatori con le credenziali del paragrafo 1.9:
+Compila i valori obbligatori con le credenziali del paragrafo 1.9.
+
+**Con Anthropic (default):**
 
 ```ini
+LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-...            # la tua chiave
 TELEGRAM_BOT_TOKEN=123456789:AAH...     # il token di BotFather
 TELEGRAM_ALLOWED_USER_ID=123456789      # il tuo ID numerico
+```
+
+**Con Groq (free tier):**
+
+```ini
+LLM_PROVIDER=groq
+GROQ_API_KEY=gsk_...                    # chiave da console.groq.com
+TELEGRAM_BOT_TOKEN=123456789:AAH...
+TELEGRAM_ALLOWED_USER_ID=123456789
 ```
 
 E controlla gli opzionali, che hanno già default sensati:
 
 | Variabile | Default | Significato |
 | --- | --- | --- |
-| `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | il modello usato per ogni risposta |
+| `LLM_PROVIDER` | `anthropic` | backend LLM: `anthropic` o `groq` |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | modello Anthropic |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | modello Groq |
 | `MAX_HISTORY_MESSAGES` | `20` | messaggi tenuti nella finestra di contesto |
 | `SYSTEM_PROMPT_PATH` | `prompts/system_prompt.txt` | il file con la personalità |
 | `BACKUP_DIR` | `/mnt/backup/emma` | dove finiscono gli archivi |
@@ -1526,8 +1556,11 @@ sudo -u emma git -C /opt/emma checkout main
 
 | Variabile | Obbligatoria | Default | Note |
 | --- | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | sì | — | comincia con `sk-ant-`; è un segreto |
+| `LLM_PROVIDER` | no | `anthropic` | `anthropic` o `groq` |
+| `ANTHROPIC_API_KEY` | se provider=anthropic | — | comincia con `sk-ant-`; è un segreto |
 | `ANTHROPIC_MODEL` | no | `claude-sonnet-4-6` | qualunque identificativo valido |
+| `GROQ_API_KEY` | se provider=groq | — | comincia con `gsk_`; è un segreto |
+| `GROQ_MODEL` | no | `openai/gpt-oss-120b` | dipende dal piano account Groq |
 | `TELEGRAM_BOT_TOKEN` | sì | — | da @BotFather; è un segreto |
 | `TELEGRAM_ALLOWED_USER_ID` | sì | — | numero, non username; da @userinfobot |
 | `MAX_HISTORY_MESSAGES` | no | `20` | messaggi nella finestra; incide sul costo |

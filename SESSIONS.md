@@ -7,7 +7,7 @@ for the next session. Newest entry at the top.
 
 ## 2026-08-30 — Session 3
 
-**Status:** In progress
+**Status:** Complete
 
 **Context:** Continuation of Session 2. Goal: implement selectable LLM provider
 (Anthropic / Groq) so EMMA can run on the free Groq tier.
@@ -25,11 +25,17 @@ for the next session. Newest entry at the top.
   `provider=groq, model=openai/gpt-oss-120b`.
 - Updated CHANGELOG.md with Groq provider entry
 
+**Done (continued):**
+- Telegram test passed — EMMA risponde correttamente tramite Groq (`openai/gpt-oss-120b`)
+- Anonimizzati IP, hostname e nome personale da tutti i file tracciati
+- Aggiunta Regola 7 in CLAUDE.md: privacy check obbligatorio prima di ogni push
+- Aggiornato `docs/GUIDA.md`: sezione 2.8 e Appendice B con tutte le nuove variabili
+- Backup: `D:\EmmaBackups\emma-20260830-170129.zip`
+- Commit: `97cfe8a`
+
 **Pending:**
-- [ ] Test EMMA via Telegram with the Groq backend (send a message, confirm reply)
-- [ ] Update `docs/GUIDA.md` to document the new LLM_PROVIDER / GROQ_* variables
-- [ ] Regenerate `docs/GUIDA.pdf` (user must do this manually)
-- [ ] Commit + backup once test passes
+- [ ] Regenerate `docs/GUIDA.pdf` (user must do this manually — PDF toolchain)
+- [ ] Push a GitHub quando la versione è considerata completa e stabile
 
 ---
 
