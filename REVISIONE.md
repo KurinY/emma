@@ -801,7 +801,12 @@ il repository resta MIT puro e l'utente sa cosa sta installando.
 
 ---
 
-## 16. Integrità del database SQLite (proposta, agosto 2026)
+## 16. Integrità del database SQLite — **implementata il 31 agosto 2026**
+
+> **Stato.** 16.1 e 16.2 sono state implementate su tua richiesta, insieme a una
+> forma limitata di auto-ripristino. 16.3 resta il verdetto sul *mirror
+> automatico generico*, che non è stato implementato — la differenza è
+> spiegata in 16.5, aggiunto dopo l'implementazione.
 
 **Da dove nasce.** Domanda tua: conviene fare un backup a parte del solo
 database, e ripristinare automaticamente la copia buona se il servizio non
@@ -887,6 +892,38 @@ quanto il danno che previene sia grave.
 del beneficio con il dieci per cento del rischio. Rilevare e segnalare è il
 comportamento giusto; ripristinare da soli non lo è.
 
+### 16.5 — Cosa è stato implementato, e perché non contraddice 16.3
+
+Hai chiesto che EMMA riuscisse comunque a ripristinarsi da sola "per quanto
+possibile". L'implementazione accoglie la richiesta senza rinunciare
+all'obiezione, perché il confine è **su cosa fa scattare il ripristino**, non
+sul ripristino in sé.
+
+**Quello che è stato fatto.** All'apertura EMMA verifica il database con
+`PRAGMA integrity_check`. Se il controllo fallisce — quindi con una diagnosi
+accertata, non ipotizzata — sposta il file rotto in `emma.db.corrotto-<data>`,
+ripristina lo snapshot più recente che supera lo stesso controllo, e se anche
+quello è illeggibile prova la generazione precedente. Se non c'è nulla di
+sano, riparte vuota. Tutto a livello ERROR nei log.
+
+**Quello che continua a non essere fatto**, ed è il punto di 16.3: nessun
+ripristino parte perché *il servizio non è partito*. Un `.env` incompleto, una
+dipendenza mancante, un errore di codice appena deployato non raggiungono
+nemmeno questo codice — falliscono prima, con il loro messaggio d'errore
+intatto. È la distinzione che rende la differenza fra una riparazione e un
+insabbiamento.
+
+La regola in una riga: **si ripristina su una diagnosi, mai su un sintomo.**
+`integrity_check` è una diagnosi; "non parte" è un sintomo con una dozzina di
+cause diverse, di cui la corruzione del database è la meno probabile.
+
+**Perdita di dati accettata.** Il ripristino riporta allo stato dell'ultimo
+snapshot, scritto all'ultimo avvio o all'ultimo spegnimento pulito. I messaggi
+scambiati dopo quel momento sono persi, e il log lo dice esplicitamente. Si
+potrebbe stringere la finestra con uno snapshot periodico (un task asincrono
+nel lifespan, o un timer systemd): è la leva giusta se un giorno la finestra
+risultasse troppo larga, e non richiede di toccare la logica di recupero.
+
 ### 16.4 — Se un giorno il dato diventasse importante
 
 Se in una fase futura EMMA conservasse note, promemoria o dati che non puoi
@@ -916,11 +953,11 @@ resta la leva sbagliata.
 | 12 | FastAPI + uvicorn | non vale la pena cambiare, ma è la prima semplificazione possibile |
 | 13 | Backup `tar.gz` | fase futura: priorità alla copia fuori casa, poi restic |
 | 14 | `CLAUDE.md` unico | fase futura: nucleo corto + `.claude/skills/` |
-| 16.1 | `tar` di un DB vivo | **da fare subito**: `VACUUM INTO` per uno snapshot consistente |
-| 16.2 | WAL + `integrity_check` all'avvio | **da fare subito**: rileva e segnala, non ripristina |
-| 16.3 | Mirror automatico del DB | non vale la pena: diagnosi sbagliata, rischio > danno evitato |
+| 16.1 | `tar` di un DB vivo | **fatto** (31/08/2026): `VACUUM INTO` verificato in `backup.sh` |
+| 16.2 | WAL + `integrity_check` all'avvio | **fatto** (31/08/2026), con ripristino da snapshot |
+| 16.3 | Mirror automatico generico | non implementato: si ripristina su diagnosi, non su sintomo (16.5) |
+| 16.4 | Snapshot periodici | fase futura, se la finestra di perdita risultasse troppo larga |
 
 La voce 5 è stata implementata nella v0.1.x (retry solo sugli errori
-transitori). Restano in lavorazione le 16.1 e 16.2, che sono un difetto reale
-del backup e la sua rete di protezione. Tutto il resto è materiale per le fasi
-che hai già in roadmap.
+transitori). Le 16.1 e 16.2 sono state implementate il 31 agosto 2026. Tutto il
+resto è materiale per le fasi che hai già in roadmap.

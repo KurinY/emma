@@ -40,6 +40,23 @@ the adapter — only a new `ConversationMemory` implementation swapped in.
 
 ---
 
+## v0.2.1 — Database integrity ✓ complete
+
+Goal: the conversation history is backed up correctly and repairs itself when
+the file is damaged. Proposed and reasoned through in `REVISIONE.md`, entry 16.
+
+- [x] Fix: `backup.sh` archived a live SQLite file (`VACUUM INTO` + verification)
+- [x] `data/` excluded from the tar; `MANIFEST.txt` reports the database status
+- [x] `PRAGMA journal_mode=WAL` in `SqliteConversationMemory.open()`
+- [x] `PRAGMA integrity_check` on open, with quarantine of the damaged file
+- [x] Recovery from the newest healthy snapshot, falling back one generation
+- [x] Snapshots via `VACUUM INTO` on open and clean shutdown, two generations
+- [x] Tests: 8 further tests in `test_memory_sqlite.py` (51 total)
+- [x] Docs: `GUIDA.md` ch. 1, 3.3, 5.6, 6.5, 6.6, 6.7; `CHANGELOG`; `REVISIONE` 16.5
+- [ ] Deploy on the production VPS and verify
+
+---
+
 ## v0.3.0 — Real tools
 
 Goal: EMMA can look things up and take actions. Each tool is a Python class

@@ -139,6 +139,7 @@ sudo apt install -y \
     git \
     curl \
     ca-certificates \
+    sqlite3 \
     tar \
     gzip
 ```
@@ -153,6 +154,7 @@ A cosa serve ciascuno:
 | `git` | scarica il codice e permette di tornare a una versione precedente |
 | `curl` | verifiche manuali (l'endpoint `/health`, la connettività) |
 | `ca-certificates` | certificati radice per le connessioni HTTPS verso Anthropic e Telegram |
+| `sqlite3` | usato da `scripts/backup.sh` per lo snapshot consistente del database |
 | `tar`, `gzip` | usati da `scripts/backup.sh` (di norma già installati) |
 
 **Verifica.**
@@ -658,7 +660,7 @@ emma/
 ├── scripts/                   backup sul server (bash) e sul PC di sviluppo (PowerShell)
 ├── systemd/                   servizio e timer di backup
 ├── tests/                     suite pytest, interamente offline
-├── data/                      (non in Git) database SQLite delle conversazioni
+├── data/                      (non in Git) database SQLite e i suoi due snapshot
 └── docs/                      questa guida
 ```
 
@@ -705,6 +707,35 @@ messaggi in un file SQLite via `aiosqlite`. Va aperta con `open()` all'avvio e
 chiusa con `close()` allo spegnimento — il lifespan di FastAPI se ne occupa.
 Il percorso del file si controlla con `MEMORY_DB_PATH` (default `data/emma.db`);
 la directory viene creata automaticamente se non esiste.
+
+### Auto-riparazione
+
+All'apertura EMMA esegue `PRAGMA integrity_check` sul database. Se **fallisce**:
+
+1. il file danneggiato viene **spostato**, mai cancellato, in
+   `emma.db.corrotto-<data>`, insieme ai suoi file `-wal` e `-shm` (un
+   write-ahead log vecchio non deve finire sopra il database ripristinato);
+2. viene rimesso al suo posto lo snapshot più recente che supera lo stesso
+   controllo; se anche quello è illeggibile si prova la generazione precedente;
+3. se nessuno snapshot è utilizzabile, EMMA riparte con una cronologia vuota;
+4. **ogni passo finisce nei log a livello ERROR**, con il percorso del file
+   messo da parte.
+
+Gli snapshot si scrivono con `VACUUM INTO` — che produce una copia consistente
+di un database in uso, cosa che una copia normale del file non garantisce — a
+ogni avvio riuscito e a ogni spegnimento pulito. Ne vengono tenute due
+generazioni (`emma.db.snapshot` e `.snapshot.prev`) e ognuna viene verificata
+prima di sostituire la precedente.
+
+Il database usa `journal_mode=WAL`, molto più resistente a un'interruzione
+brutale (kill, OOM killer, mancanza di corrente) rispetto al journal di default.
+
+**Il recupero scatta solo su una corruzione accertata.** Se EMMA non parte per
+un altro motivo — `.env` incompleto, dipendenza mancante, errore di codice —
+questo codice non viene nemmeno raggiunto, ed è voluto: ripristinare un
+database perché si è rotto qualcos'altro butterebbe via cronologia buona senza
+risolvere il guasto vero. Il ragionamento completo è nella voce 16 di
+`REVISIONE.md`.
 
 Tre scelte implementative comuni a entrambe:
 
@@ -1082,6 +1113,7 @@ Ti dice quando scatterà la prossima esecuzione.
 | `/opt/emma` | codice, virtualenv, prompt | `750 emma:emma` |
 | `/opt/emma/.env` | chiave API e token | `600 emma:emma` |
 | `/opt/emma/data/emma.db` | cronologia delle conversazioni | `emma:emma` |
+| `/opt/emma/data/emma.db.snapshot{,.prev}` | copie verificate per il recupero | `emma:emma` |
 | `/mnt/backup/emma` | archivi datati | `700 emma:emma` |
 | `/etc/systemd/system/emma.service` | il servizio | root |
 | `/etc/systemd/system/emma-backup.{service,timer}` | il backup | root |
@@ -1178,16 +1210,21 @@ Sono limiti dichiarati, non difetti. Ognuno ha già la sua fase nella roadmap.
 
 ## 5.6 Azzerare la memoria
 
-La cronologia sta in un file SQLite, per default `/opt/emma/data/emma.db`. Per
-ripartire da zero:
+La cronologia sta in un file SQLite, per default `/opt/emma/data/emma.db`,
+affiancato da due snapshot. Per ripartire da zero vanno via tutti e tre:
 
 ```bash
 sudo systemctl stop emma.service
-sudo -u emma rm /opt/emma/data/emma.db
+sudo -u emma rm -f /opt/emma/data/emma.db /opt/emma/data/emma.db.snapshot*
 sudo systemctl start emma.service
 ```
 
-Il database viene ricreato vuoto al primo messaggio. Non serve toccare altro.
+Il database viene ricreato vuoto al primo messaggio.
+
+> **Cancellare solo `emma.db` non basta.** Il file sparirebbe, ma la cronologia
+> resterebbe negli snapshot — e se un giorno il nuovo database si corrompesse,
+> EMMA ripristinerebbe le conversazioni che credevi di aver cancellato.
+> L'asterisco nel comando sopra serve esattamente a questo.
 
 Se vuoi conservare la cronologia prima di cancellarla, copiala altrove: è un file
 SQLite normale, leggibile con `sqlite3 emma.db "SELECT * FROM messages;"`.
@@ -1222,6 +1259,8 @@ significano le righe che vedrai più spesso:
 | `ignored message from user_id=... (not in whitelist)` | qualcun altro ha scritto al bot |
 | `anthropic call failed (attempt 1/3)` | tentativo fallito, sta riprovando |
 | `giving up on this turn, model unreachable` | tutti i tentativi falliti, risposta di cortesia |
+| `database integrity check FAILED ...` | database corrotto: è partito il recupero automatico (paragrafo 6.7) |
+| `RECOVERED: history restored from ...` | cronologia ripristinata da uno snapshot |
 
 Quanto spazio occupa il journal e come limitarlo:
 
@@ -1363,11 +1402,30 @@ quindi riparte da solo.
 ## 6.5 Backup della configurazione e della memoria
 
 Due file **non** sono in Git e vanno protetti dal backup: il `.env`, senza il
-quale l'assistente non parte, e `data/emma.db`, che contiene tutte le tue
-conversazioni. Entrambi finiscono in ogni archivio prodotto da `backup.sh` —
-il virtualenv invece è escluso apposta, perché si ricostruisce da
+quale l'assistente non parte, e il database, che contiene tutte le tue
+conversazioni. Il virtualenv invece è escluso apposta, perché si ricostruisce da
 `requirements.txt`. È per questi due file che la directory dei backup ha permessi
 `700`.
+
+Il database non viene archiviato copiandolo: `backup.sh` ne fa uno snapshot con
+`VACUUM INTO`, che produce una copia consistente **mentre il servizio scrive**,
+poi ne verifica l'integrità e solo allora lo include. Una copia normale, presa
+con `tar` a servizio acceso, può catturare una transazione a metà: l'archivio si
+apre senza errori e il database dentro non si apre affatto — un guasto che si
+scopre solo il giorno del ripristino.
+
+Nell'archivio lo snapshot si chiama `emma.db` e sta accanto a `MANIFEST.txt`,
+non dentro `data/` (che è escluso dal `tar` proprio per questo). Il manifesto
+dichiara sempre com'è andata:
+
+```bash
+tar -xzOf /mnt/backup/emma/emma-*.tar.gz MANIFEST.txt | grep database
+# database:    emma.db (consistent snapshot, integrity verified)
+```
+
+Se invece leggi `NOT INCLUDED`, quell'archivio contiene codice e `.env` ma non
+la cronologia: il motivo è scritto sulla stessa riga (di solito `sqlite3` non
+installato). **Non è un backup fallito** — il resto è valido — ma va sistemato.
 
 Se vuoi una copia a parte, per esempio prima di rigenerare la chiave API:
 
@@ -1428,7 +1486,11 @@ sudo mv /tmp/restore/emma /opt/emma
 sudo chown -R emma:emma /opt/emma
 sudo chmod 750 /opt/emma
 sudo chmod 600 /opt/emma/.env
-# data/emma.db è nell'archivio: le conversazioni tornano com'erano
+
+# 5b. Rimetti la cronologia: nell'archivio lo snapshot sta accanto al manifesto,
+#     non dentro data/, quindi va copiato a mano
+sudo -u emma mkdir -p /opt/emma/data
+sudo -u emma cp /tmp/restore/emma.db /opt/emma/data/emma.db
 
 # 6. Ricrea il virtualenv: nell'archivio non c'è, per scelta
 sudo -u emma python3 -m venv /opt/emma/.venv
@@ -1573,6 +1635,41 @@ sudo -u emma sqlite3 /opt/emma/data/emma.db "SELECT COUNT(*) FROM messages;"
 - **Il file c'è ma la cronologia è vuota** → normale dopo una cancellazione o al
   primo avvio; si ripopola dal messaggio successivo.
 
+### EMMA ha ripristinato la memoria da sola
+
+Se il database si corrompe, EMMA se ne accorge all'avvio e si ripara. Non è
+silenziosa: cerca nei log.
+
+```bash
+journalctl -u emma | grep -E "integrity check FAILED|RECOVERED|corrupt"
+ls -l /opt/emma/data/
+```
+
+Cosa vedrai, e cosa significa:
+
+| Riga | Significato |
+| --- | --- |
+| `database integrity check FAILED for ...` | il database era danneggiato |
+| `corrupt database kept for inspection at ...` | il file rotto è lì, non è stato cancellato |
+| `RECOVERED: history restored from ...` | ripristinato dallo snapshot; i messaggi scritti dopo quello snapshot sono persi |
+| `snapshot ... is unusable, trying the one before it` | la generazione più recente era rotta, si è usata la precedente |
+| `no healthy snapshot available` | nessuno snapshot valido: EMMA è ripartita con cronologia vuota |
+
+Il file danneggiato resta in `data/emma.db.corrotto-<data>`. Puoi provare a
+recuperarci qualcosa:
+
+```bash
+sudo -u emma sqlite3 /opt/emma/data/emma.db.corrotto-20260831-143002 \
+  ".recover" > /tmp/recuperato.sql
+```
+
+Quando hai finito, cancellalo: non serve a nessuno e occupa spazio.
+
+**Se succede più di una volta**, il problema non è SQLite ma il disco. Controlla
+`dmesg -T | grep -i -E "i/o error|ata"` e lo stato SMART (`smartctl -a /dev/sda`):
+un database che si corrompe ripetutamente è quasi sempre un supporto che sta
+morendo, e nessuna auto-riparazione compensa un disco guasto.
+
 ### Le risposte sono strane o fuori carattere
 
 Hai modificato `prompts/system_prompt.txt` e non hai riavviato: il prompt viene
@@ -1627,10 +1724,13 @@ sudo systemctl start emma-backup.service
 systemctl list-timers emma-backup.timer
 ls -lht /mnt/backup/emma/ | head
 
-# Memoria: azzerare la cronologia
+# Memoria: azzerare la cronologia (snapshot compresi)
 sudo systemctl stop emma.service
-sudo -u emma rm /opt/emma/data/emma.db
+sudo -u emma rm -f /opt/emma/data/emma.db /opt/emma/data/emma.db.snapshot*
 sudo systemctl start emma.service
+
+# Memoria: com'è andato l'ultimo recupero automatico
+journalctl -u emma | grep -E "integrity check FAILED|RECOVERED"
 
 # Aggiornamento (dopo il backup)
 sudo -u emma git -C /opt/emma pull
@@ -1661,10 +1761,11 @@ sudo -u emma git -C /opt/emma checkout main
 | `BACKUP_DIR` | no | `/mnt/backup/emma` | letto da `backup.sh` |
 | `BACKUP_KEEP` | no | `14` | archivi conservati dalla rotazione |
 
-> **Nota:** il file SQLite (`data/emma.db`) contiene la cronologia delle
-> conversazioni e non deve mai essere incluso in un commit Git — `.gitignore`
-> lo esclude già. Per azzerare la memoria basta cancellare il file e riavviare
-> il servizio.
+> **Nota:** il file SQLite (`data/emma.db`) e i suoi due snapshot contengono la
+> cronologia delle conversazioni e non devono mai finire in un commit Git —
+> `.gitignore` esclude già l'intera directory `data/`. Per azzerare la memoria
+> vanno cancellati anche gli snapshot, altrimenti un recupero automatico
+> potrebbe farli tornare: vedi il paragrafo 5.6.
 
 # Appendice C — Dove guardare quando qualcosa non torna
 

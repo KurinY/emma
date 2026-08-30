@@ -112,7 +112,7 @@ def create_app(config: Config) -> FastAPI:
 
     app = FastAPI(
         title="EMMA",
-        version="0.1.0",
+        version="0.2.0",
         summary="Self-hosted personal assistant - text-only v1",
         lifespan=lifespan,
         docs_url=None,

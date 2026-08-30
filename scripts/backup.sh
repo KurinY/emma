@@ -103,6 +103,38 @@ if command -v git >/dev/null && git -C "${PROJECT_DIR}" rev-parse --git-dir >/de
     fi
 fi
 
+# --------------------------------------------------------------------------- #
+# Database snapshot.  Copying a live SQLite file with tar can archive a
+# half-written transaction: the archive reads back fine, the database inside it
+# does not.  VACUUM INTO produces a consistent copy of a database that is being
+# written to, which is exactly the situation here -- the service keeps running
+# during the backup.  The snapshot is archived in place of data/, which is
+# excluded from the tar below.
+# --------------------------------------------------------------------------- #
+MEMORY_DB="${PROJECT_DIR}/$(read_env MEMORY_DB_PATH data/emma.db)"
+DB_STATUS="no database file (nothing to snapshot)"
+
+if [[ -f "${MEMORY_DB}" ]]; then
+    if ! command -v sqlite3 >/dev/null; then
+        DB_STATUS="NOT INCLUDED: sqlite3 is not installed (apt install sqlite3)"
+        log "warning: sqlite3 missing, the conversation history is not in this archive"
+    elif sqlite3 "${MEMORY_DB}" "VACUUM INTO '${STAGING}/emma.db'" 2>/dev/null; then
+        # A snapshot that cannot be read back is worse than none, because it
+        # would be trusted at restore time.
+        if sqlite3 "${STAGING}/emma.db" "PRAGMA integrity_check" 2>/dev/null | grep -qx ok; then
+            DB_STATUS="emma.db (consistent snapshot, integrity verified)"
+            log "database snapshot written and verified"
+        else
+            rm -f "${STAGING}/emma.db"
+            DB_STATUS="NOT INCLUDED: the snapshot failed its integrity check"
+            log "warning: the database snapshot is corrupt and was discarded"
+        fi
+    else
+        DB_STATUS="NOT INCLUDED: VACUUM INTO failed (is the database corrupt?)"
+        log "warning: could not snapshot the database, continuing without it"
+    fi
+fi
+
 cat > "${STAGING}/MANIFEST.txt" <<EOF
 EMMA backup manifest
 ======================
@@ -112,30 +144,41 @@ user:        $(id -un)
 project dir: ${PROJECT_DIR}
 git commit:  ${GIT_COMMIT}
 python:      $(command -v python3 >/dev/null && python3 --version 2>&1 || echo "not found")
+database:    ${DB_STATUS}
 
 Restore:
   1. tar -xzf <this-archive>.tar.gz -C /tmp
   2. copy the restored directory over the installation, or to a new one
-  3. check .env, recreate the virtual environment, restart the service
+  3. put the conversation history back, if this archive carries one:
+       mkdir -p <install>/data && cp emma.db <install>/data/emma.db
+     (the snapshot sits beside this manifest, not under data/)
+  4. check .env, recreate the virtual environment, restart the service
   The full procedure is in chapter 6 of docs/GUIDA.pdf.
 EOF
 
 # --------------------------------------------------------------------------- #
 # Archive.  The excluded paths are all reproducible from the repository plus
 # requirements.txt: there is no point paying disk for them every single day.
+# data/ is excluded for a different reason -- it holds the live database, which
+# is archived above as a consistent snapshot instead.
 # --------------------------------------------------------------------------- #
 log "creating ${ARCHIVE}"
 umask 077
+
+STAGED_FILES=(MANIFEST.txt)
+[[ -f "${STAGING}/emma.db" ]] && STAGED_FILES+=(emma.db)
+
 tar --create --gzip --file "${ARCHIVE}" \
     --exclude="${PROJECT_NAME}/.venv" \
     --exclude="${PROJECT_NAME}/venv" \
+    --exclude="${PROJECT_NAME}/data" \
     --exclude='__pycache__' \
     --exclude='*.pyc' \
     --exclude='.pytest_cache' \
     --exclude='.ruff_cache' \
     --exclude="${PROJECT_NAME}/.git/objects/pack/tmp_*" \
     -C "$(dirname "${PROJECT_DIR}")" "${PROJECT_NAME}" \
-    -C "${STAGING}" MANIFEST.txt
+    -C "${STAGING}" "${STAGED_FILES[@]}"
 chmod 600 "${ARCHIVE}"
 
 # A backup that cannot be read is not a backup: verify before rotating, so a

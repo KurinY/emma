@@ -10,6 +10,35 @@ change will always be listed here.
 
 ## [Unreleased]
 
+### Added
+
+- **Database integrity and self-healing.** `SqliteConversationMemory.open()`
+  runs `PRAGMA integrity_check` before handing the database to the application.
+  On failure the damaged file is moved aside — never deleted — and the newest
+  snapshot that passes the same check is restored in its place; if none
+  survives, the store starts empty. Every step is logged at `ERROR` level.
+  Recovery is triggered *only* by verified corruption, never by a failed
+  start-up from any other cause.
+- Snapshots are written with `VACUUM INTO` on every successful open and clean
+  shutdown, verified before they replace the previous generation. Two
+  generations are kept (`emma.db.snapshot`, `.snapshot.prev`).
+- `PRAGMA journal_mode=WAL`, which survives an abrupt kill far better than the
+  default rollback journal.
+- `tests/test_memory_sqlite.py`: 8 further tests covering recovery from a
+  corrupt file, fallback to the older snapshot, quarantine instead of deletion,
+  the no-snapshot case, and a stale write-ahead log.
+
+### Fixed
+
+- **`scripts/backup.sh` archived a live SQLite file with `tar`**, which can
+  capture a half-written transaction: the archive reads back fine while the
+  database inside it does not, and nothing detected this until a restore was
+  attempted. The script now takes a consistent snapshot with `VACUUM INTO`,
+  verifies it, and archives that instead; `data/` is excluded from the tar and
+  `MANIFEST.txt` states whether the history is included and why not when it
+  isn't. Requires the `sqlite3` package, which is documented in chapter 1 of
+  the guide; without it the backup still succeeds, minus the history.
+
 The next planned step is v0.3: real tools behind the existing `Tool` protocol.
 
 ## [0.2.0] - 2026-08-31

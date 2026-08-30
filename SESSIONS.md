@@ -40,7 +40,28 @@ for the next session. Newest entry at the top.
   confronto aggiornati, sezione Documentation aggiunta
 - 43 test verdi, ruff pulito
 
-**Pending:** nessuno — tutto clean
+**Done (continued) — integrità database (v0.2.1):**
+- Domanda dell'utente: backup del solo DB + ripristino automatico se non riparte.
+  Analisi in `REVISIONE.md` voce 16: il backup era **realmente rotto**
+  (`tar` di un SQLite vivo può archiviare una transazione a metà), il mirror
+  automatico generico invece è stato sconsigliato e non implementato.
+- `backup.sh`: snapshot con `VACUUM INTO` + verifica integrità, `data/` escluso
+  dal tar, `MANIFEST.txt` dichiara lo stato del database. Richiede `sqlite3`.
+- `core/memory.py`: `journal_mode=WAL`, `integrity_check` all'apertura,
+  quarantena del file rotto (mai cancellato), ripristino dallo snapshot più
+  recente sano con fallback alla generazione precedente, snapshot su open e
+  close. Tutto loggato a livello ERROR.
+- **Vincolo di progetto:** il ripristino scatta solo su corruzione accertata,
+  mai perché "il servizio non parte" (motivazione in `REVISIONE.md` 16.5).
+- 8 nuovi test (51 totali), ruff pulito
+- `backup.sh` verificato end-to-end con uno shim `sqlite3` su Windows:
+  percorso felice, fallback senza sqlite3, esclusione di `data/`, e messaggio
+  effettivamente rileggibile dall'archivio
+- Docs: GUIDA cap. 1.4, 3.3 (nuova sezione auto-riparazione), 4.8, 5.6, 6.1,
+  6.5, 6.6.2, 6.7 (nuovo caso), Appendici A/B; CHANGELOG; ROADMAP v0.2.1
+
+**Pending:**
+- [ ] Deploy di v0.2.1 sul VPS Aruba (richiede `apt install sqlite3`) e verifica
 
 ---
 
