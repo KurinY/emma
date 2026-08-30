@@ -26,7 +26,7 @@ from fastapi import FastAPI
 
 from adapters.telegram import TelegramAdapter
 from config import Config, ConfigError, load_config
-from core.llm import AnthropicLanguageModel
+from core.llm import AnthropicLanguageModel, GroqLanguageModel
 from core.memory import InMemoryConversationMemory
 from core.router import Router
 
@@ -73,10 +73,12 @@ def create_app(config: Config) -> FastAPI:
         The application, ready to be served by uvicorn.
     """
     system_prompt = config.read_system_prompt()
-    llm = AnthropicLanguageModel(
-        api_key=config.anthropic_api_key,
-        model=config.anthropic_model,
-    )
+    if config.llm_provider == "groq":
+        llm = GroqLanguageModel(api_key=config.groq_api_key, model=config.groq_model)
+        active_model = config.groq_model
+    else:
+        llm = AnthropicLanguageModel(api_key=config.anthropic_api_key, model=config.anthropic_model)
+        active_model = config.anthropic_model
     memory = InMemoryConversationMemory(max_messages=config.max_history_messages)
     router = Router(llm=llm, memory=memory, system_prompt=system_prompt, tools=())
     telegram = TelegramAdapter(
@@ -89,8 +91,9 @@ def create_app(config: Config) -> FastAPI:
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         """Start the Telegram adapter with the server and stop it with it."""
         logger.info(
-            "starting emma (model=%s, history=%d messages)",
-            config.anthropic_model,
+            "starting emma (provider=%s, model=%s, history=%d messages)",
+            config.llm_provider,
+            active_model,
             config.max_history_messages,
         )
         await telegram.start()
@@ -117,7 +120,8 @@ def create_app(config: Config) -> FastAPI:
         """Report that the process is alive and which model it is using."""
         return {
             "status": "ok",
-            "model": config.anthropic_model,
+            "model": active_model,
+            "provider": config.llm_provider,
             "uptime_seconds": round(time.monotonic() - started_at, 1),
         }
 

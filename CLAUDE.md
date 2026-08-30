@@ -77,10 +77,13 @@ which you changed anything:
 4. **Report.** Tell the user, in one or two lines, what you committed and
    whether the backup ran.
 
-Do not `push`, do not `git tag`, do not rewrite history (`rebase`, `reset
---hard`, `commit --amend`, force-push) unless the user explicitly asks. The
-update flow is: development PC → GitHub → `git pull` on the server, and
-rewritten history breaks it for the copy that is already deployed.
+Do not `push` unless the user explicitly asks **and** the version being pushed
+is complete and working — not mid-session, not mid-feature. Push only when a
+coherent, tested milestone is ready (e.g. a full version bump, a finished
+feature). Do not `git tag`, do not rewrite history (`rebase`, `reset --hard`,
+`commit --amend`, force-push) unless the user explicitly asks. The update flow
+is: development PC → GitHub → `git pull` on the server, and rewritten history
+breaks it for the copy that is already deployed.
 
 ## 4. Do not delete or move files blindly
 
@@ -112,3 +115,37 @@ do it.
 Code, comments, docstrings, commit messages and the English documents stay in
 English. `docs/GUIDA.md`/`.pdf` and `REVISIONE.md` are written in Italian —
 keep writing in Italian when you edit them.
+
+## 7. Privacy check before every push
+
+Before any `git push`, scan every tracked file for personally identifiable
+information and infrastructure details. This check is mandatory — no exception,
+no shortcut.
+
+What to look for and fix before pushing:
+
+- **Real IP addresses** (private or public) — replace with `<host>` or a generic
+  description like "local test machine".
+- **Hostnames / machine names** — replace with a generic label.
+- **Real personal names** — use a project alias or omit.
+- **Real email addresses** — use a placeholder or omit.
+- **API keys, tokens, passwords** — these must never appear; if found, treat it
+  as an incident: stop, tell the user, revoke the key.
+- **Telegram user IDs** or other numeric identifiers tied to a real account.
+- **Local file-system paths** that reveal username or machine layout
+  (e.g. `C:\Users\<name>\...`).
+
+How to run the check:
+
+```bash
+# IP addresses
+git grep -En "([0-9]{1,3}\.){3}[0-9]{1,3}" -- .
+
+# Common secret prefixes
+git grep -iEn "sk-ant-|gsk_|[0-9]{9,}:[A-Za-z]" -- .
+
+# Local paths and usernames
+git grep -in "C:\\Users\\" -- .
+```
+
+If any match is found: fix it first, then push. Never push and fix later.

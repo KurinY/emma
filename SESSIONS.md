@@ -5,9 +5,37 @@ for the next session. Newest entry at the top.
 
 ---
 
-## 2026-08-29 — Session 2
+## 2026-08-30 — Session 3
 
 **Status:** In progress
+
+**Context:** Continuation of Session 2. Goal: implement selectable LLM provider
+(Anthropic / Groq) so EMMA can run on the free Groq tier.
+
+**Done:**
+- Added `GroqLanguageModel` to `core/llm.py` (OpenAI-compatible, same retry policy)
+- Extended `config.py` with `LLM_PROVIDER`, `GROQ_API_KEY`, `GROQ_MODEL` support
+- Updated `main.py` to select provider at boot; `/health` now exposes `"provider"`
+- Updated `.env.example` with all new variables and documentation
+- Added `groq==0.15.0` to `requirements.txt`
+- All 33 tests passing; ruff clean
+- **VM deployment**: Ubuntu Server VM (local test machine) created and running.
+  Copied updated code to VM via scp, installed groq package, configured `.env`
+  with `LLM_PROVIDER=groq` and Groq API key. Service confirmed starting with
+  `provider=groq, model=openai/gpt-oss-120b`.
+- Updated CHANGELOG.md with Groq provider entry
+
+**Pending:**
+- [ ] Test EMMA via Telegram with the Groq backend (send a message, confirm reply)
+- [ ] Update `docs/GUIDA.md` to document the new LLM_PROVIDER / GROQ_* variables
+- [ ] Regenerate `docs/GUIDA.pdf` (user must do this manually)
+- [ ] Commit + backup once test passes
+
+---
+
+## 2026-08-29 — Session 2
+
+**Status:** Complete
 
 **Context:** Continuation of Session 1 (context window ran out). Starting with
 end-of-session procedure that was not completed.
@@ -17,6 +45,9 @@ end-of-session procedure that was not completed.
 - Updated project_emma memory entry (default model was stale: haiku → sonnet)
 - Ran end-of-session procedure: ruff clean, 33 tests passing, backup written to
   `D:\EmmaBackups\emma-20260829-120447.zip`, initial git commit `f4e6fbd`
+- Set up GitHub repo (KurinY/emma), gh CLI authenticated, push policy clarified
+- **Decision:** No remote server for now. Deployment will be tested on a local
+  VM (Ubuntu Server) on this Windows PC first.
 
 **Pending:**
 - [ ] Regenerate `docs/GUIDA.pdf` from `docs/GUIDA.md` (user must do this manually)

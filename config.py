@@ -29,11 +29,21 @@ from dotenv import load_dotenv
 # Defaults
 # --------------------------------------------------------------------------- #
 
+#: Supported LLM providers.
+SUPPORTED_PROVIDERS = ("anthropic", "groq")
+
+#: Default provider when ``LLM_PROVIDER`` is not set.
+DEFAULT_LLM_PROVIDER = "anthropic"
+
 #: Default model used when ``ANTHROPIC_MODEL`` is not set.  Sonnet 4.6 offers
 #: the best balance of quality and cost for a personal conversational assistant:
 #: noticeably more capable than Haiku, fast enough for chat, and cheap enough
 #: for light personal traffic.
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+
+#: Default Groq model.  Llama 3.3 70B is the best openly-available model on
+#: Groq's free tier for conversational quality.
+DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
 
 #: Default number of *messages* (not exchanges) kept in the rolling context
 #: window.  Twenty messages is roughly ten user/assistant turns.
@@ -63,8 +73,13 @@ class Config:
     """Validated, immutable application settings.
 
     Attributes:
-        anthropic_api_key: Secret key for the Anthropic API.
-        anthropic_model: Model identifier passed to the Messages API.
+        llm_provider: Which LLM backend to use: ``"anthropic"`` or ``"groq"``.
+        anthropic_api_key: Secret key for the Anthropic API (required when
+            ``llm_provider == "anthropic"``; empty otherwise).
+        anthropic_model: Anthropic model identifier.
+        groq_api_key: Secret key for the Groq API (required when
+            ``llm_provider == "groq"``; empty otherwise).
+        groq_model: Groq model identifier.
         telegram_bot_token: Token issued by BotFather for this bot.
         telegram_allowed_user_id: The single Telegram user ID allowed to talk
             to the bot.  Every other sender is ignored without a reply.
@@ -74,8 +89,11 @@ class Config:
         backup_keep: How many archives the rotation keeps.
     """
 
+    llm_provider: str
     anthropic_api_key: str
     anthropic_model: str
+    groq_api_key: str
+    groq_model: str
     telegram_bot_token: str
     telegram_allowed_user_id: int
     max_history_messages: int
@@ -183,9 +201,24 @@ def load_config(env_file: Path | None = None) -> Config:
     """
     load_dotenv(env_file or (PROJECT_ROOT / ".env"), override=False)
 
+    llm_provider = _optional("LLM_PROVIDER", DEFAULT_LLM_PROVIDER).lower()
+    if llm_provider not in SUPPORTED_PROVIDERS:
+        raise ConfigError(
+            f"LLM_PROVIDER must be one of {SUPPORTED_PROVIDERS}, got '{llm_provider}'"
+        )
+    if llm_provider == "anthropic":
+        anthropic_api_key = _require("ANTHROPIC_API_KEY")
+        groq_api_key = _optional("GROQ_API_KEY", "")
+    else:  # groq
+        groq_api_key = _require("GROQ_API_KEY")
+        anthropic_api_key = _optional("ANTHROPIC_API_KEY", "")
+
     config = Config(
-        anthropic_api_key=_require("ANTHROPIC_API_KEY"),
+        llm_provider=llm_provider,
+        anthropic_api_key=anthropic_api_key,
         anthropic_model=_optional("ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL),
+        groq_api_key=groq_api_key,
+        groq_model=_optional("GROQ_MODEL", DEFAULT_GROQ_MODEL),
         telegram_bot_token=_require("TELEGRAM_BOT_TOKEN"),
         telegram_allowed_user_id=_positive_int(
             "TELEGRAM_ALLOWED_USER_ID", _require("TELEGRAM_ALLOWED_USER_ID")

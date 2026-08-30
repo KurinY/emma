@@ -358,7 +358,7 @@ sezione fatturazione — è la protezione più semplice contro una sorpresa.
 
 1. `/newbot`
 2. scegli un nome visualizzato (per esempio `Emma`)
-3. scegli uno username che finisca per `bot` (per esempio `emma_di_matteo_bot`)
+3. scegli uno username che finisca per `bot` (per esempio `emma_assistant_bot`)
 
 BotFather risponde con un token nella forma `123456789:AAH...`. **È una
 credenziale**: chi ce l'ha controlla il bot. Non finisce mai in Git, mai in un

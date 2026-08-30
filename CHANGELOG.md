@@ -10,6 +10,18 @@ change will always be listed here.
 
 ## [Unreleased]
 
+### Added
+
+- **Multi-provider LLM support**: select the AI backend at start-up via the
+  `LLM_PROVIDER` environment variable (`"anthropic"` or `"groq"`).
+- `core/llm.py`: new `GroqLanguageModel` class (OpenAI-compatible API) with
+  the same exponential-backoff retry policy as `AnthropicLanguageModel`.
+- `config.py`: new fields `llm_provider`, `groq_api_key`, `groq_model`;
+  new constants `SUPPORTED_PROVIDERS`, `DEFAULT_LLM_PROVIDER`, `DEFAULT_GROQ_MODEL`.
+- `main.py`: provider selection at boot; `/health` endpoint now exposes
+  `"provider"` alongside `"model"`.
+- `.env.example`: documented `LLM_PROVIDER`, `GROQ_API_KEY`, `GROQ_MODEL`.
+
 ### Changed
 
 - Default model upgraded from `claude-haiku-4-5-20251001` to `claude-sonnet-4-6`
@@ -19,9 +31,6 @@ change will always be listed here.
   instead of burning 3 seconds on pointless retries.
 - `adapters/telegram.py`: blank lines (`\n\n`) near a chunk-split boundary are
   now preserved in the next chunk instead of being silently dropped.
-
-### Added
-
 - `tests/test_llm.py`: six tests covering the retry/no-retry distinction for the
   Anthropic client.
 - `tests/test_telegram.py`: six tests for `_split_message`, including blank-line

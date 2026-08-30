@@ -1,14 +1,16 @@
-"""Anthropic client with a retry policy.
+"""LLM clients with a shared retry policy.
 
-This module is the only place in the project that imports the ``anthropic``
-SDK.  It exposes:
+This module is the only place in the project that imports provider SDKs.
+It exposes:
 
 * :data:`Message` -- the shape of a conversation message on the wire;
 * :class:`TextBlock` / :class:`ToolUseBlock` -- the two kinds of content the
   router has to deal with, decoupled from the SDK's own classes;
 * :class:`LanguageModel` -- the narrow interface the router depends on;
-* :class:`AnthropicLanguageModel` -- the real implementation, with exponential
+* :class:`AnthropicLanguageModel` -- Anthropic implementation with exponential
   backoff and a hard cap on the number of attempts;
+* :class:`GroqLanguageModel` -- Groq implementation (OpenAI-compatible API)
+  with the same retry policy;
 * :class:`LLMUnavailableError` -- raised once every attempt has failed, so the
   caller can turn it into a polite message instead of a crash.
 """
@@ -307,6 +309,138 @@ class AnthropicLanguageModel:
     async def aclose(self) -> None:
         """Release the underlying HTTP connection pool."""
         await self._client.close()
+
+
+class GroqLanguageModel:
+    """:class:`LanguageModel` backed by the Groq API (OpenAI-compatible).
+
+    Uses the same retry policy as :class:`AnthropicLanguageModel`: transient
+    errors (connection failures, 5xx) are retried with exponential backoff;
+    permanent errors (4xx) are surfaced immediately.
+
+    The system prompt is injected as the first message (role ``"system"``),
+    which is the OpenAI convention Groq uses.
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        *,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+        backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    ) -> None:
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be at least 1")
+        import groq as groq_sdk
+
+        self._groq_sdk = groq_sdk
+        self._client = groq_sdk.AsyncGroq(api_key=api_key)
+        self._model = model
+        self._max_tokens = max_tokens
+        self._max_attempts = max_attempts
+        self._backoff_seconds = backoff_seconds
+
+    async def complete(
+        self,
+        *,
+        system: str,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> LLMResponse:
+        """Call the Groq chat completions API, retrying transient failures."""
+        groq_messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
+        for m in messages:
+            content = m["content"]
+            groq_messages.append(
+                {
+                    "role": m["role"],
+                    "content": content if isinstance(content, str) else _flatten_content(content),
+                }
+            )
+
+        last_error: Exception | None = None
+        for attempt in range(1, self._max_attempts + 1):
+            try:
+                raw = await self._client.chat.completions.create(
+                    model=self._model,
+                    messages=groq_messages,
+                    max_tokens=self._max_tokens,
+                )
+            except self._groq_sdk.APIConnectionError as exc:
+                last_error = exc
+                logger.warning(
+                    "groq call failed (attempt %d/%d): %s: %s",
+                    attempt,
+                    self._max_attempts,
+                    type(exc).__name__,
+                    exc,
+                )
+                if attempt < self._max_attempts:
+                    await asyncio.sleep(self._backoff_seconds * 2 ** (attempt - 1))
+                continue
+            except self._groq_sdk.APIStatusError as exc:
+                if exc.status_code >= 500:
+                    last_error = exc
+                    logger.warning(
+                        "groq call failed (attempt %d/%d): %s: %s",
+                        attempt,
+                        self._max_attempts,
+                        type(exc).__name__,
+                        exc,
+                    )
+                    if attempt < self._max_attempts:
+                        await asyncio.sleep(self._backoff_seconds * 2 ** (attempt - 1))
+                    continue
+                logger.error(
+                    "groq call rejected permanently (attempt %d/%d): HTTP %s %s: %s",
+                    attempt,
+                    self._max_attempts,
+                    exc.status_code,
+                    type(exc).__name__,
+                    exc,
+                )
+                raise LLMUnavailableError(
+                    f"the Groq API returned a permanent error: {exc}"
+                ) from exc
+
+            choice = raw.choices[0]
+            text = choice.message.content or ""
+            stop_reason = choice.finish_reason
+            logger.info(
+                "groq call ok (attempt %d): stop_reason=%s in=%d out=%d",
+                attempt,
+                stop_reason,
+                raw.usage.prompt_tokens,
+                raw.usage.completion_tokens,
+            )
+            return LLMResponse(blocks=(TextBlock(text=text),), stop_reason=stop_reason)
+
+        raise LLMUnavailableError(
+            f"the Groq API did not answer after {self._max_attempts} attempts"
+        ) from last_error
+
+    async def aclose(self) -> None:
+        """Release the underlying HTTP connection pool."""
+        await self._client.close()
+
+
+def _flatten_content(content: Any) -> str:
+    """Convert Anthropic-style content blocks to a plain string.
+
+    Used when replaying assistant messages to a non-Anthropic backend that
+    expects plain-text content.  Only ``text`` blocks are included; tool
+    blocks are dropped because Groq handles tools differently.
+    """
+    if isinstance(content, list):
+        return "\n\n".join(
+            block["text"]
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    return str(content)
 
 
 def _to_response(raw: anthropic.types.Message) -> LLMResponse:
