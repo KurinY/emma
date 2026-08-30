@@ -1456,8 +1456,14 @@ apre senza errori e il database dentro non si apre affatto — un guasto che si
 scopre solo il giorno del ripristino.
 
 Nell'archivio lo snapshot si chiama `emma.db` e sta accanto a `MANIFEST.txt`,
-non dentro `data/` (che è escluso dal `tar` proprio per questo). Il manifesto
-dichiara sempre com'è andata:
+non dentro `data/` (che è escluso dal `tar` proprio per questo). Sono esclusi
+anche il virtualenv e `~/.cache`: la directory di installazione è anche la home
+dell'utente `emma`, quindi ci finisce la cache di pip, che pesa decine di
+megabyte ed è interamente ricostruibile da `requirements.txt`. Un archivio sano
+pesa qualche centinaio di kilobyte; se ne vedi uno da decine di megabyte,
+qualcosa di non necessario ci è entrato dentro.
+
+Il manifesto dichiara sempre com'è andata:
 
 ```bash
 tar -xzOf /mnt/backup/emma/emma-*.tar.gz MANIFEST.txt | grep database

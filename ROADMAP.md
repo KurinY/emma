@@ -64,7 +64,15 @@ Found during the pre-publication review, all install-blocking:
 - [x] Clear error naming `ReadWritePaths` instead of a bare `OSError`
 - [x] Guide: `data/` created in ch. 4.6 before the unit starts; upgrade note
 - [x] Verified: cold start, both path shapes, backup end-to-end, 51 tests
-- [ ] Deploy on the production VPS and verify
+
+Found during the production deploy:
+
+- [x] Fix: snapshots came out `0644` (VACUUM INTO uses the process umask)
+- [x] Fix: pip's HTTP cache was archived nightly (23 MB → 340 KB per archive)
+- [x] Deploy on the production VPS and verify (hardened units now in place,
+      snapshot written at start-up, history intact, backup verified end-to-end)
+- [ ] Configure backups on the VPS: single disk, no `BACKUP_DIR`, timer not
+      enabled — needs a decision on where archives go
 
 ---
 

@@ -441,6 +441,14 @@ class SqliteConversationMemory(ConversationMemory):
             tmp.unlink(missing_ok=True)
             return
 
+        # VACUUM INTO creates the file with the process umask, typically 0644.
+        # A snapshot holds the same conversations as the database itself and
+        # deserves the same permissions, wherever MEMORY_DB_PATH points.
+        try:
+            tmp.chmod(0o600)
+        except OSError as exc:  # not fatal, but worth knowing about
+            logger.warning("could not restrict permissions on the snapshot: %s", exc)
+
         try:
             if self._snapshot.exists():
                 self._snapshot.replace(self._snapshot_prev)

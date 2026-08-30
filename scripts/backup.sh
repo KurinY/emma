@@ -163,6 +163,9 @@ EOF
 # --------------------------------------------------------------------------- #
 # Archive.  The excluded paths are all reproducible from the repository plus
 # requirements.txt: there is no point paying disk for them every single day.
+# .cache in particular is pip's HTTP cache, which lands here because the
+# installation directory doubles as the home of the emma user; left in, it was
+# by far the largest thing in every archive.
 # data/ is excluded for a different reason -- it holds the live database, which
 # is archived above as a consistent snapshot instead.
 # --------------------------------------------------------------------------- #
@@ -176,6 +179,7 @@ tar --create --gzip --file "${ARCHIVE}" \
     --exclude="${PROJECT_NAME}/.venv" \
     --exclude="${PROJECT_NAME}/venv" \
     --exclude="${PROJECT_NAME}/data" \
+    --exclude="${PROJECT_NAME}/.cache" \
     --exclude='__pycache__' \
     --exclude='*.pyc' \
     --exclude='.pytest_cache' \

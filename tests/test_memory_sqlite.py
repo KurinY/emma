@@ -6,6 +6,8 @@ fully isolated and leave no state behind.
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from core.memory import SqliteConversationMemory, StoredMessage
@@ -276,6 +278,22 @@ async def test_recovery_is_not_disturbed_by_a_stale_wal(tmp_path):
 
     assert history == [user("prima")]
     assert after == [user("prima"), assistant("dopo il recupero")]
+
+
+async def test_snapshot_is_not_world_readable(tmp_path):
+    """A snapshot holds the same conversations as the database itself."""
+    db = tmp_path / "perms.db"
+
+    m = SqliteConversationMemory(db_path=db, max_messages=10)
+    await m.open()
+    await m.append("c1", user("riservato"))
+    await m.close()
+
+    mode = (tmp_path / "perms.db.snapshot").stat().st_mode & 0o777
+    # Windows does not implement POSIX permission bits; the assertion that
+    # matters is the one that runs on the platform EMMA is deployed to.
+    if os.name == "posix":
+        assert mode == 0o600, f"expected 0600, got {mode:o}"
 
 
 async def test_write_ahead_logging_is_enabled(tmp_path):

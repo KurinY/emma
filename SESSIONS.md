@@ -89,11 +89,37 @@ Verifiche: 51 test verdi, ruff pulito, import di tutti i moduli, avvio a freddo
 (directory creata, cronologia scritta, snapshot presente), `backup.sh`
 end-to-end su percorso relativo e assoluto.
 
+**Done (continued) — deploy v0.2.1 in produzione:**
+
+Deploy sul VPS (IPv6-only, codice via tar+scp: GitHub non è raggiungibile).
+Copia di sicurezza di `.env` + `data/` + unit precedente prima di toccare nulla.
+Archivio di deploy costruito escludendo `.env` e `data/`, verificato prima
+dell'invio. Installato `sqlite3`, permessi `700` su `data/` e `600` sul db,
+**unit systemd blindate installate al posto di quella manuale semplificata**.
+
+Verificato in produzione:
+- 51→52 test verdi sul server, servizio `active`, 0 riavvii
+- log con `provider=groq`, `db=/opt/emma/data/emma.db`; `/health` con provider
+- **snapshot creato all'avvio** — la prova che il fix di `ReadWritePaths`
+  funziona: con la unit precedente sarebbe stato impossibile
+- `journal_mode=wal` attivo, cronologia preservata (8 messaggi, integrità `ok`)
+- `backup.sh` end-to-end: snapshot consistente e verificato, `data/` escluso,
+  `.env` incluso, archivio `600`, servizio vivo durante il backup
+
+Due difetti ulteriori trovati **durante** il deploy e corretti:
+1. **Snapshot a `0644`** — `VACUUM INTO` usa la umask del processo, quindi un
+   file con le stesse conversazioni del database usciva più permissivo del
+   database stesso. Ora `chmod 600` prima della rotazione (+1 test, 52 totali).
+2. **26 MB di cache pip in ogni archivio** — `/opt/emma` è anche la home
+   dell'utente `emma`, quindi `~/.cache/pip` finiva nel `tar`. Escluso:
+   archivio di produzione da **23 MB a 340 KB**.
+
 **Pending:**
-- [ ] Deploy di v0.2.1 sul VPS Aruba e verifica. Richiede tre passi in più:
-      `apt install sqlite3`, `mkdir -p /opt/emma/data && chmod 700`, e la
-      **ricopia delle unit systemd** (quella su Aruba è la versione manuale
-      semplificata, senza hardening).
+- [ ] **Il server non ha backup configurati**: nessun `BACKUP_DIR` nel `.env`,
+      `/mnt/backup` inesistente (VPS a disco singolo), timer mai installato.
+      Le unit sono ora copiate ma il timer non è abilitato. Serve una decisione
+      dell'utente su dove scrivere gli archivi (`.env` lo tocca solo lui).
+- [ ] Prova finale da Telegram dopo il passaggio alla unit blindata.
 
 ---
 

@@ -46,6 +46,16 @@ change will always be listed here.
   the project directory unconditionally, while `config.py` honours absolute
   paths, so a relocated database was reported as "no database file" and silently
   left out of the archive. The two now resolve paths the same way.
+- **Snapshots were world-readable.** `VACUUM INTO` creates its target with the
+  process umask, so a file holding the same conversations as the database came
+  out `0644` next to a database at `0600`. They are now chmod'ed to `0600`
+  before they are put in place, which matters wherever `MEMORY_DB_PATH` points
+  at a directory less restrictive than the default.
+- **Every nightly archive carried pip's HTTP cache.** The installation
+  directory doubles as the home of the `emma` user, so `~/.cache/pip` lives
+  inside it and `tar` swept it up: 26 MB of content reproducible from
+  `requirements.txt`, in every archive, retained fourteen times over. Excluding
+  it took a production archive from 23 MB to 340 KB.
 - `SqliteConversationMemory.open()` raises a message naming `ReadWritePaths`
   when it cannot create the database directory, instead of an unhandled
   `OSError` that names neither the cause nor the fix.
