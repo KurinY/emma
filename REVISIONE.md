@@ -801,6 +801,103 @@ il repository resta MIT puro e l'utente sa cosa sta installando.
 
 ---
 
+## 16. Integrità del database SQLite (proposta, agosto 2026)
+
+**Da dove nasce.** Domanda tua: conviene fare un backup a parte del solo
+database, e ripristinare automaticamente la copia buona se il servizio non
+riparte? La risposta è metà sì e metà no, e nel guardarci dentro è emerso un
+difetto reale nel backup attuale.
+
+### 16.1 — Il difetto: `tar` copia un database vivo
+
+`scripts/backup.sh` archivia l'intera directory di progetto mentre il servizio
+è in funzione. `data/emma.db` viene letto pagina per pagina mentre EMMA ci
+scrive: se un `COMMIT` atterra a metà lettura, l'archivio contiene un database
+internamente incoerente. Il `tar -tzf` di verifica non se ne accorge — controlla
+che l'archivio sia leggibile, non che il `.db` dentro sia valido.
+
+Conseguenza pratica: gli archivi prodotti finora contengono codice e `.env`
+affidabili e un `.db` che potrebbe non aprirsi. Lo scopriresti solo il giorno
+del ripristino.
+
+**Correzione.** SQLite ha il meccanismo apposta. Prima del `tar`, in
+`backup.sh`:
+
+```bash
+if [[ -f "${PROJECT_DIR}/data/emma.db" ]]; then
+    sqlite3 "${PROJECT_DIR}/data/emma.db" \
+        "VACUUM INTO '${STAGING}/emma.db.snapshot'" \
+        || log "warning: could not snapshot the database, continuing without it"
+fi
+```
+
+e si esclude `data/` dal `tar`, archiviando lo snapshot al suo posto.
+`VACUUM INTO` produce una copia consistente di un database in uso, senza
+fermare il servizio. Aggiunge una dipendenza: il pacchetto `sqlite3`, che è
+nei repository ufficiali.
+
+Costo: sei righe e un pacchetto. Beneficio: il backup del dato diventa
+affidabile invece che probabile. **Verdetto: da fare subito.**
+
+### 16.2 — WAL e controllo d'integrità all'avvio
+
+Due miglioramenti che si reggono da soli.
+
+`PRAGMA journal_mode=WAL` in `SqliteConversationMemory.open()`: il
+write-ahead log sopravvive molto meglio a un'interruzione brutale
+(kill -9, OOM killer, mancanza di corrente) rispetto al journal di default.
+Una riga, nessuno svantaggio in questo scenario a scrittore singolo.
+
+`PRAGMA integrity_check` allo stesso punto: se il database è corrotto, EMMA
+lo sposta in `emma.db.corrotto-<timestamp>`, ne crea uno nuovo vuoto, logga a
+livello ERROR dove ha messo il file e riparte. **Non ripristina niente da
+sola:** ti dice che è successo, conserva le prove e torna operativa. La
+decisione su cosa recuperare resta tua.
+
+Costo: una decina di righe in `open()` e un paio di test. **Verdetto: da fare
+subito, insieme a 16.1.**
+
+### 16.3 — Il mirror automatico: perché no
+
+L'idea era: se il servizio non riparte, rimetti al suo posto l'ultima copia
+buona del database. Tre obiezioni.
+
+**La diagnosi sarebbe quasi sempre sbagliata.** Le cause reali per cui EMMA
+non riparte sono, in ordine di frequenza: `.env` incompleto o malformato,
+dipendenza mancante dopo un aggiornamento, errore di codice appena deployato,
+percorso non scrivibile. Il database corrotto non è nemmeno in classifica. Un
+ripristino automatico in tutti quei casi butta via le conversazioni recenti
+senza risolvere nulla, e sostituisce un errore diagnosticabile con un
+comportamento inspiegabile.
+
+**La corruzione è rarissima con questo profilo d'uso.** Un solo processo, una
+sola connessione, commit espliciti, nessuna concorrenza in scrittura: è la
+configurazione più sicura possibile per SQLite. Perché si corrompa serve un
+guasto fisico del disco o un kernel panic dentro una `fsync`. Con WAL attivo
+(16.2) anche quella finestra si stringe.
+
+**Il valore del dato non giustifica la macchina.** La memoria è una finestra
+scorrevole di venti messaggi di conversazione. Perderla costa il contesto
+recente, non un archivio con valore legale o contabile. Un sistema di recovery
+automatico è codice che gira senza supervisione nel momento peggiore possibile
+— l'avvio dopo un guasto — ed è quindi più capace di causare un danno di
+quanto il danno che previene sia grave.
+
+**Verdetto: non vale la pena.** Il rilevamento (16.2) dà il novanta per cento
+del beneficio con il dieci per cento del rischio. Rilevare e segnalare è il
+comportamento giusto; ripristinare da soli non lo è.
+
+### 16.4 — Se un giorno il dato diventasse importante
+
+Se in una fase futura EMMA conservasse note, promemoria o dati che non puoi
+ricostruire, la risposta corretta non sarebbe comunque il mirror automatico,
+ma: snapshot orari con `VACUUM INTO` invece che giornalieri, una copia fuori
+casa (già voce 13), e un comando di ripristino esplicito documentato. La
+frequenza e la destinazione sono le leve giuste; l'automatismo di recovery
+resta la leva sbagliata.
+
+---
+
 ## Riepilogo dei verdetti
 
 | # | Voce | Verdetto |
@@ -819,6 +916,11 @@ il repository resta MIT puro e l'utente sa cosa sta installando.
 | 12 | FastAPI + uvicorn | non vale la pena cambiare, ma è la prima semplificazione possibile |
 | 13 | Backup `tar.gz` | fase futura: priorità alla copia fuori casa, poi restic |
 | 14 | `CLAUDE.md` unico | fase futura: nucleo corto + `.claude/skills/` |
+| 16.1 | `tar` di un DB vivo | **da fare subito**: `VACUUM INTO` per uno snapshot consistente |
+| 16.2 | WAL + `integrity_check` all'avvio | **da fare subito**: rileva e segnala, non ripristina |
+| 16.3 | Mirror automatico del DB | non vale la pena: diagnosi sbagliata, rischio > danno evitato |
 
-Una sola voce, la 5, la metterei in lavorazione adesso. Tutto il resto è
-materiale per le fasi che hai già in roadmap.
+La voce 5 è stata implementata nella v0.1.x (retry solo sugli errori
+transitori). Restano in lavorazione le 16.1 e 16.2, che sono un difetto reale
+del backup e la sua rete di protezione. Tutto il resto è materiale per le fasi
+che hai già in roadmap.
