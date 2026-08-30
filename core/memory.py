@@ -230,7 +230,15 @@ class SqliteConversationMemory(ConversationMemory):
         """
         import aiosqlite
 
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            # Under systemd this is almost always ProtectSystem=strict without a
+            # matching ReadWritePaths, and a bare traceback names neither.
+            raise RuntimeError(
+                f"cannot create the database directory {self._db_path.parent}: {exc}. "
+                f"Under systemd, check that ReadWritePaths in emma.service covers it."
+            ) from exc
 
         if self._db_path.exists() and not await self._file_is_healthy(self._db_path):
             await self._recover()

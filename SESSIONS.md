@@ -60,8 +60,40 @@ for the next session. Newest entry at the top.
 - Docs: GUIDA cap. 1.4, 3.3 (nuova sezione auto-riparazione), 4.8, 5.6, 6.1,
   6.5, 6.6.2, 6.7 (nuovo caso), Appendici A/B; CHANGELOG; ROADMAP v0.2.1
 
+**Done (continued) — revisione pre-pubblicazione:**
+
+Revisione sistematica su richiesta ("assicurati che sia tutto giusto ad essere
+pubblicato ed installato"). Trovati tre bug, due dei quali **bloccavano
+l'installazione pulita**:
+
+1. **`emma.service` non poteva scrivere il database.** `ProtectSystem=strict`
+   senza `ReadWritePaths` rende `/opt/emma` in sola lettura: la v0.2.0
+   pubblicata **falliva su un'installazione fatta seguendo la guida**.
+   Funzionava su Aruba solo perché lì la unit era stata scritta a mano
+   semplificata durante il deploy. Aggiunto `ReadWritePaths=/opt/emma/data`
+   (la directory di installazione resta in sola lettura, per scelta).
+2. **`emma-backup.service` non poteva leggere il database.** Un lettore WAL deve
+   poter aggiornare il file `-shm`: l'archivio sarebbe uscito senza cronologia.
+   `ReadWritePaths` esteso alla directory del database.
+3. **`backup.sh` sbagliava un `MEMORY_DB_PATH` assoluto** — prefissava sempre
+   la project dir mentre `config.py` onora gli assoluti. Risultato: archivio
+   senza cronologia, dichiarata come "nothing to snapshot". Verificato con un
+   test A/B sul codice pre e post fix.
+
+Inoltre: errore parlante che nomina `ReadWritePaths` invece di un `OSError`
+grezzo; `data/` creata in guida al 4.6 prima della unit (systemd rifiuta di
+partire se `ReadWritePaths` non esiste); nota di aggiornamento da <0.2.1;
+ricopia delle unit nella procedura 6.3; intestazione stantia in `requirements.txt`.
+
+Verifiche: 51 test verdi, ruff pulito, import di tutti i moduli, avvio a freddo
+(directory creata, cronologia scritta, snapshot presente), `backup.sh`
+end-to-end su percorso relativo e assoluto.
+
 **Pending:**
-- [ ] Deploy di v0.2.1 sul VPS Aruba (richiede `apt install sqlite3`) e verifica
+- [ ] Deploy di v0.2.1 sul VPS Aruba e verifica. Richiede tre passi in più:
+      `apt install sqlite3`, `mkdir -p /opt/emma/data && chmod 700`, e la
+      **ricopia delle unit systemd** (quella su Aruba è la versione manuale
+      semplificata, senza hardening).
 
 ---
 

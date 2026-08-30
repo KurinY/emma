@@ -30,6 +30,25 @@ change will always be listed here.
 
 ### Fixed
 
+- **`systemd/emma.service` could not write the database at all.** The unit sets
+  `ProtectSystem=strict`, which mounts the whole filesystem read-only, and
+  declared no `ReadWritePaths`. On a clean install following the guide, 0.2.0
+  therefore failed as soon as it tried to create `data/`; it only worked where
+  the unit had been simplified by hand during deployment. The unit now declares
+  `ReadWritePaths=/opt/emma/data` — the installation directory itself stays
+  read-only, so the service still cannot rewrite its own code.
+- **`systemd/emma-backup.service` could not read the database either.** The
+  backup only reads, but a WAL reader has to update the `-shm` index beside the
+  file, which `ProtectSystem=strict` forbade; the archive would have gone out
+  without the history. Its `ReadWritePaths` now covers the database directory
+  as well.
+- **`scripts/backup.sh` mis-resolved an absolute `MEMORY_DB_PATH`.** It prefixed
+  the project directory unconditionally, while `config.py` honours absolute
+  paths, so a relocated database was reported as "no database file" and silently
+  left out of the archive. The two now resolve paths the same way.
+- `SqliteConversationMemory.open()` raises a message naming `ReadWritePaths`
+  when it cannot create the database directory, instead of an unhandled
+  `OSError` that names neither the cause nor the fix.
 - **`scripts/backup.sh` archived a live SQLite file with `tar`**, which can
   capture a half-written transaction: the archive reads back fine while the
   database inside it does not, and nothing detected this until a restore was

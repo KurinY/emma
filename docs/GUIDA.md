@@ -1010,8 +1010,12 @@ Devi vedere qualcosa come:
 INFO:     Uvicorn running on http://127.0.0.1:8000
 ```
 
-Al primo avvio la directory `data/` e il file del database vengono creati
-automaticamente: non devi preparare nulla a mano.
+Al primo avvio il file del database viene creato automaticamente dentro `data/`.
+
+> **La directory `data/` va creata prima di installare il servizio**, al
+> paragrafo 4.6: `emma.service` la dichiara in `ReadWritePaths=`, e systemd
+> **rifiuta di avviare** una unit il cui `ReadWritePaths` punta a una directory
+> che non esiste. Se stai provando a mano come qui sopra, EMMA la crea da sé.
 
 **Ora la prova vera: prendi il telefono e scrivi al tuo bot.** Entro un paio di
 secondi devi ricevere una risposta, e sul terminale devono comparire le righe
@@ -1025,6 +1029,15 @@ Ferma il processo con `Ctrl+C`.
 
 ## 4.6 Il servizio systemd
 
+Prima la directory del database, che deve esistere **prima** che la unit parta:
+
+```bash
+sudo -u emma mkdir -p /opt/emma/data
+sudo chmod 700 /opt/emma/data
+```
+
+`700` perché contiene le tue conversazioni. Poi il servizio:
+
 ```bash
 sudo cp /opt/emma/systemd/emma.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -1036,6 +1049,15 @@ partire da solo a ogni avvio della macchina.
 
 Se hai installato EMMA in un percorso diverso da `/opt/emma`, prima di copiare il
 file modifica le righe marcate `# PATH:` e la coppia `User=`/`Group=`.
+
+> **Perché la directory prima.** La unit è blindata con `ProtectSystem=strict`,
+> che rende l'intero filesystem in sola lettura per il servizio; l'unica
+> eccezione è `ReadWritePaths=/opt/emma/data`, che è ciò che permette a EMMA di
+> scrivere la cronologia senza poter riscrivere il proprio codice. Systemd però
+> **rifiuta di avviare** una unit il cui `ReadWritePaths` non esiste, con un
+> errore poco parlante (`Failed to set up mount namespacing`). Se sposti il
+> database con `MEMORY_DB_PATH`, aggiorna quella riga nella unit e la gemella in
+> `emma-backup.service`.
 
 **Verifica.**
 
@@ -1348,6 +1370,25 @@ systemctl status emma.service
 curl -s http://127.0.0.1:8000/health
 ```
 
+Se il `git pull` ha toccato i file in `systemd/`, ricopiali e ricarica prima di
+riavviare — il `git pull` aggiorna il repository, non le unit già installate in
+`/etc`:
+
+```bash
+sudo cp /opt/emma/systemd/*.service /opt/emma/systemd/*.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+```
+
+> **Aggiornamento da una versione precedente alla 0.2.1.** Servono due cose che
+> prima non c'erano, entrambe una volta sola:
+> ```bash
+> sudo apt install -y sqlite3                     # per lo snapshot del backup
+> sudo -u emma mkdir -p /opt/emma/data && sudo chmod 700 /opt/emma/data
+> ```
+> e la ricopia delle unit qui sopra, perché `emma.service` dichiara ora
+> `ReadWritePaths=/opt/emma/data`: senza, il servizio non riesce a scrivere la
+> cronologia.
+
 **Verifica finale: scrivi al bot dal telefono.** Un servizio `active (running)`
 non dimostra che l'assistente risponde; un messaggio sì.
 
@@ -1488,9 +1529,11 @@ sudo chmod 750 /opt/emma
 sudo chmod 600 /opt/emma/.env
 
 # 5b. Rimetti la cronologia: nell'archivio lo snapshot sta accanto al manifesto,
-#     non dentro data/, quindi va copiato a mano
+#     non dentro data/, quindi va copiato a mano. La directory deve esistere
+#     comunque, anche senza cronologia da rimettere: la unit la esige.
 sudo -u emma mkdir -p /opt/emma/data
-sudo -u emma cp /tmp/restore/emma.db /opt/emma/data/emma.db
+sudo chmod 700 /opt/emma/data
+sudo -u emma cp /tmp/restore/emma.db /opt/emma/data/emma.db   # se l'archivio ce l'ha
 
 # 6. Ricrea il virtualenv: nell'archivio non c'è, per scelta
 sudo -u emma python3 -m venv /opt/emma/.venv
@@ -1625,11 +1668,19 @@ ls -l /opt/emma/data/
 sudo -u emma sqlite3 /opt/emma/data/emma.db "SELECT COUNT(*) FROM messages;"
 ```
 
-- **La directory `data/` non esiste** → viene creata al primo avvio; se manca,
-  i permessi di `/opt/emma` non consentono la scrittura:
-  `sudo chown -R emma:emma /opt/emma`.
+- **`Failed to set up mount namespacing`** e il servizio non parte affatto →
+  la directory dichiarata in `ReadWritePaths=` non esiste. Creala e riavvia:
+  ```bash
+  sudo -u emma mkdir -p /opt/emma/data && sudo chmod 700 /opt/emma/data
+  sudo systemctl restart emma.service
+  ```
+- **`cannot create the database directory ...`** nei log → il servizio parte ma
+  non può scrivere. Sotto systemd è quasi sempre `ReadWritePaths=` in
+  `emma.service` che non copre il percorso di `MEMORY_DB_PATH`: allinea le due
+  cose e ricarica con `sudo systemctl daemon-reload`.
 - **`unable to open database file`** nei log → stesso problema di permessi,
-  oppure `MEMORY_DB_PATH` nel `.env` punta a un percorso non scrivibile.
+  oppure `MEMORY_DB_PATH` nel `.env` punta a un percorso non scrivibile:
+  `sudo chown -R emma:emma /opt/emma/data`.
 - **`database is locked`** → due processi EMMA stanno girando insieme. Controlla
   con `systemctl status emma.service` e chiudi quello avviato a mano.
 - **Il file c'è ma la cronologia è vuota** → normale dopo una cancellazione o al

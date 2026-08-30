@@ -1,4 +1,4 @@
-# EMMA v0.1.0 - pinned dependencies.
+# EMMA - pinned dependencies.
 #
 # Versions are pinned exactly so that a deploy today and a deploy in six months
 # install the very same code.  To upgrade, bump a line here on the development

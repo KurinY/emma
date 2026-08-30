@@ -52,6 +52,13 @@ RestrictSUIDSGID=true
 LockPersonality=true
 CapabilityBoundingSet=
 AmbientCapabilities=
-# PATH: the destination directory, i.e. BACKUP_DIR in .env. ProtectSystem=strict
-# makes the whole filesystem read-only, so this is the one hole we punch.
-ReadWritePaths=/mnt/backup
+# PATH: the destination directory, i.e. BACKUP_DIR in .env, and the database
+# directory. ProtectSystem=strict makes the whole filesystem read-only, so these
+# are the two holes we punch.
+#
+# The second one is not obvious: the backup only *reads* the database, but the
+# database runs in WAL mode, and a WAL reader has to update the -shm index file
+# beside it. Without write access there, sqlite3 cannot open the file at all and
+# the archive would silently go out without the conversation history.
+# If you moved the database with MEMORY_DB_PATH, point this at its directory.
+ReadWritePaths=/mnt/backup /opt/emma/data

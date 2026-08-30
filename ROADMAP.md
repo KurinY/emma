@@ -53,6 +53,17 @@ the file is damaged. Proposed and reasoned through in `REVISIONE.md`, entry 16.
 - [x] Snapshots via `VACUUM INTO` on open and clean shutdown, two generations
 - [x] Tests: 8 further tests in `test_memory_sqlite.py` (51 total)
 - [x] Docs: `GUIDA.md` ch. 1, 3.3, 5.6, 6.5, 6.6, 6.7; `CHANGELOG`; `REVISIONE` 16.5
+
+Found during the pre-publication review, all install-blocking:
+
+- [x] Fix: `emma.service` had `ProtectSystem=strict` and no `ReadWritePaths`,
+      so 0.2.0 could not create `data/` on a clean install
+- [x] Fix: `emma-backup.service` could not read a WAL database (needs write
+      access to the `-shm` file beside it)
+- [x] Fix: `backup.sh` mis-resolved an absolute `MEMORY_DB_PATH`
+- [x] Clear error naming `ReadWritePaths` instead of a bare `OSError`
+- [x] Guide: `data/` created in ch. 4.6 before the unit starts; upgrade note
+- [x] Verified: cold start, both path shapes, backup end-to-end, 51 tests
 - [ ] Deploy on the production VPS and verify
 
 ---

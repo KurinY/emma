@@ -111,7 +111,11 @@ fi
 # during the backup.  The snapshot is archived in place of data/, which is
 # excluded from the tar below.
 # --------------------------------------------------------------------------- #
-MEMORY_DB="${PROJECT_DIR}/$(read_env MEMORY_DB_PATH data/emma.db)"
+# Relative paths are anchored to the project directory and absolute ones are
+# taken as they are, matching how config.py resolves MEMORY_DB_PATH.  Getting
+# this wrong would silently snapshot nothing.
+MEMORY_DB="$(read_env MEMORY_DB_PATH data/emma.db)"
+[[ "${MEMORY_DB}" == /* ]] || MEMORY_DB="${PROJECT_DIR}/${MEMORY_DB}"
 DB_STATUS="no database file (nothing to snapshot)"
 
 if [[ -f "${MEMORY_DB}" ]]; then

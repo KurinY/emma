@@ -77,5 +77,14 @@ SystemCallErrorNumber=EPERM
 # systemd-resolved; no raw or exotic socket families.
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 
+# PATH: the conversation database and its snapshots. ProtectSystem=strict makes
+# the whole filesystem read-only, so this is the one hole the assistant needs -
+# and deliberately the only one: the installation directory itself stays
+# read-only, so the service can never rewrite its own code.
+# The directory must exist before the unit starts (chapter 4 of the guide
+# creates it); systemd refuses to start a unit whose ReadWritePaths is missing.
+# If you moved the database with MEMORY_DB_PATH, point this at its directory.
+ReadWritePaths=/opt/emma/data
+
 [Install]
 WantedBy=multi-user.target
