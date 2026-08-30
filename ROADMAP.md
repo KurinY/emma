@@ -20,7 +20,7 @@ Propose new items in `REVISIONE.md` first; move them here once approved.
 - [x] CLAUDE.md rule 7: mandatory privacy check before every push
 - [x] Deployment: tested on local Ubuntu VM and production VPS (IPv6-only)
 - [x] Commit + backup for Session 3 changes (commit `c8a8c5a`, backup `emma-20260830-170129.zip`)
-- [ ] Regenerate `docs/GUIDA.pdf` from updated `docs/GUIDA.md`
+- [x] Regenerate `docs/GUIDA.pdf` from updated `docs/GUIDA.md`
 
 ---
 
@@ -34,7 +34,7 @@ the adapter — only a new `ConversationMemory` implementation swapped in.
 - [x] Implement `SqliteConversationMemory` in `core/memory.py` via `aiosqlite`
 - [x] Wire it in `main.py` (open/close in lifespan, replaces InMemory)
 - [x] Tests: `test_memory_sqlite.py` — 9 tests including persistence across reopen
-- [ ] Update `docs/GUIDA.md` (new variable, first-run DB creation)
+- [x] Update `docs/GUIDA.md` (new variable, first-run DB creation)
 - [x] Update `CHANGELOG.md` and this ROADMAP
 - [x] Backup + commit + deploy (verificato in produzione su Aruba)
 

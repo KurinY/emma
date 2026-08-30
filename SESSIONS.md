@@ -5,6 +5,22 @@ for the next session. Newest entry at the top.
 
 ---
 
+## 2026-08-31 — Session 5
+
+**Status:** Complete
+
+**Context:** Rigenerazione `docs/GUIDA.pdf` dopo aggiornamento manuale di `docs/GUIDA.md` (versione 1, solo testo).
+
+**Done:**
+- `docs/GUIDA.md` aggiornato dall'utente (versione 1, solo testo, v0.1.0)
+- `docs/GUIDA.pdf` rigenerato con pandoc + xelatex (218 KB)
+- ROADMAP.md: spuntati GUIDA.pdf (v0.1.x) e GUIDA.md update (v0.2)
+- Commit e push
+
+**Pending:** nessuno — tutto clean
+
+---
+
 ## 2026-08-30 — Session 4
 
 **Status:** Complete
