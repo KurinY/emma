@@ -146,6 +146,14 @@ Bug reports, questions and pull requests are welcome — see
 [CONTRIBUTING.md](CONTRIBUTING.md). One house rule: architectural changes are
 discussed in an issue before they are implemented.
 
+## Authorship
+
+EMMA was designed and built by [Claude](https://claude.ai) (Anthropic AI)
+under human guidance — architecture decisions, implementation, tests,
+documentation and deployment were all produced by the AI, with the human
+directing goals and priorities. This is an experiment in AI-driven software
+development as much as it is a personal assistant.
+
 ## License
 
 MIT — see [LICENSE](LICENSE). Dependencies keep their own licenses.
