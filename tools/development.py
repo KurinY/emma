@@ -245,6 +245,52 @@ class AnswerQuestion:
         )
 
 
+class DevelopmentContext:
+    """Puts the current shape of the queue in front of the model every turn.
+
+    Satisfies the ``ContextProvider`` protocol in :mod:`core.router`, and
+    exists for the reason set out there: whether ``work_status`` gets called is
+    the model's decision, and it decided wrong four times in ten when a stale
+    answer was sitting in the conversation -- repeating it word for word rather
+    than looking. A line that is simply present cannot be skipped.
+
+    It reports counts and numbers only. The details stay behind the tool: this
+    is paid for on every message, including the overwhelming majority that have
+    nothing to do with development work.
+    """
+
+    def __init__(self, store: TaskStore) -> None:
+        """Bind the provider to the queue it reads."""
+        self._store = store
+
+    async def snapshot(self) -> str:
+        """Return one line describing the queue, or nothing when it is empty."""
+        tasks = await self._store.open_tasks()
+        if not tasks:
+            return (
+                "Stato dei lavori di sviluppo in questo momento: nessuno aperto. "
+                "Questa riga e' sempre aggiornata: se ricordi il contrario, "
+                "questa ha ragione."
+            )
+
+        waiting = [t for t in tasks if t.status == "waiting_user"]
+        line = (
+            f"Stato dei lavori di sviluppo in questo momento: {len(tasks)} aperti "
+            f"({', '.join('#' + str(t.id) for t in tasks)})."
+        )
+        if waiting:
+            line += (
+                f" Di questi, {len(waiting)} attendono una risposta dell'utente"
+                f" ({', '.join('#' + str(t.id) for t in waiting)})."
+            )
+        line += (
+            " Questa riga e' sempre aggiornata: se la conversazione precedente"
+            " dice un numero diverso, quella e' vecchia e questa ha ragione."
+            " Per il contenuto dei lavori usa work_status, non la memoria."
+        )
+        return line
+
+
 def development_tools(store: TaskStore) -> tuple[RequestDevelopment, WorkStatus, AnswerQuestion]:
     """Build the three tools around one store.
 
@@ -260,6 +306,7 @@ def development_tools(store: TaskStore) -> tuple[RequestDevelopment, WorkStatus,
 __all__ = [
     "STAGE_ORDER",
     "AnswerQuestion",
+    "DevelopmentContext",
     "RequestDevelopment",
     "WorkStatus",
     "development_tools",

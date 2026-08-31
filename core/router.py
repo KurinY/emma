@@ -111,6 +111,34 @@ class Tool(Protocol):
         ...
 
 
+@runtime_checkable
+class ContextProvider(Protocol):
+    """A fact the assistant must have in front of it, not go and fetch.
+
+    A tool is consulted only when the model decides to consult it, and that
+    decision is the model's to get wrong: a weaker one gets it wrong more
+    often, a different one differently.  For anything whose *current* value
+    matters that is a poor place to keep the truth, because an answer given
+    once is remembered, and remembered answers get repeated long after they
+    stopped being true.
+
+    Measured on the running assistant, asked about work whose state had
+    changed: it repeated a stale answer word for word four times out of ten,
+    and once in ten even from a clean history.  Instructing it not to only
+    moves those numbers, and moves them again on the next model.
+
+    A provider sidesteps the decision.  Whatever it returns is appended to the
+    system prompt on every turn, so a stale memory is contradicted by something
+    already on the page rather than by a lookup nobody performed.  Keep it to a
+    line: it is paid for on every message and competes for attention with the
+    personality itself.
+    """
+
+    async def snapshot(self) -> str:
+        """Return the current state in one short line, or ``""`` for nothing."""
+        ...
+
+
 @dataclass(slots=True)
 class Router:
     """Turns an :class:`AssistantRequest` into an :class:`AssistantResponse`.
@@ -120,6 +148,8 @@ class Router:
         memory: Where conversation history is read from and written to.
         system_prompt: The assistant personality.
         tools: Tools the model may call.  Empty in version 1.
+        context_providers: Facts refreshed and put in front of the model on
+            every turn, for state a tool would only report when asked.
         max_tool_iterations: Ceiling on the tool rounds of a single turn.
     """
 
@@ -127,6 +157,7 @@ class Router:
     memory: ConversationMemory
     system_prompt: str
     tools: Sequence[Tool] = ()
+    context_providers: Sequence[ContextProvider] = ()
     max_tool_iterations: int = DEFAULT_MAX_TOOL_ITERATIONS
     _tools_by_name: dict[str, Tool] = field(init=False, repr=False, default_factory=dict)
 
@@ -197,10 +228,14 @@ class Router:
                 :meth:`handle` can turn it into a polite message.
         """
         tool_schemas = self._tool_schemas()
+        # Gathered once per turn, not once per tool round: the state cannot
+        # change under the assistant mid-turn, and re-reading it every round
+        # would pay for it several times over for the same answer.
+        system = await self._system_prompt_now()
 
         for iteration in range(1, self.max_tool_iterations + 1):
             reply = await self.llm.complete(
-                system=self.system_prompt,
+                system=system,
                 messages=messages,
                 tools=tool_schemas,
             )
@@ -253,6 +288,32 @@ class Router:
             logger.exception("tool '%s' failed", name)
             return _tool_result(call_id, f"tool error: {exc}", is_error=True)
         return _tool_result(call_id, output)
+
+    async def _system_prompt_now(self) -> str:
+        """Return the personality with the current facts appended to it.
+
+        A provider that fails must not take the turn down with it: the
+        assistant is more useful answering without one line of context than
+        not answering at all.  The failure is logged, because a provider that
+        is quietly never contributing looks exactly like one that has nothing
+        to say.
+        """
+        if not self.context_providers:
+            return self.system_prompt
+
+        lines: list[str] = []
+        for provider in self.context_providers:
+            try:
+                snapshot = await provider.snapshot()
+            except Exception:  # a broken provider must never cost a reply
+                logger.exception("context provider %r failed", type(provider).__name__)
+                continue
+            if snapshot:
+                lines.append(snapshot.strip())
+
+        if not lines:
+            return self.system_prompt
+        return self.system_prompt + "\n\n" + "\n".join(lines)
 
     def _tool_schemas(self) -> list[dict[str, Any]] | None:
         """Return the tool declarations for the API, or ``None`` if there are none."""

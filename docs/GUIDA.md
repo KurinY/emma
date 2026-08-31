@@ -801,6 +801,33 @@ Due proprietà da conoscere, perché spiegano perché è fatto così:
   a quel file coprono così anche i lavori. Un secondo database sarebbe rimasto
   scoperto, e in silenzio.
 
+### Lo stato che EMMA ha sempre davanti
+
+`DevelopmentContext` non è uno strumento: è un **fornitore di contesto**. Il
+router lo interroga a ogni turno e accoda una riga al prompt di sistema:
+
+```
+Stato dei lavori di sviluppo in questo momento: 2 aperti (#1, #2). Di questi,
+2 attendono una risposta dell'utente (#1, #2). Questa riga e' sempre aggiornata:
+se la conversazione precedente dice un numero diverso, quella e' vecchia e
+questa ha ragione.
+```
+
+Esiste per una ragione scoperta sul campo: **uno strumento viene consultato solo
+se il modello decide di consultarlo**, e quella decisione può andare storta. È
+successo — EMMA ha ripetuto parola per parola una risposta sbagliata di un
+quarto d'ora prima, senza andare a rileggere. La memoria persistente e gli
+strumenti si danneggiano a vicenda: una risposta ricavata da un tool, una volta
+salvata, diventa indistinguibile da un fatto.
+
+Misurato su dieci tentativi: 6 corretti su 10 con la memoria avvelenata e nessun
+contesto, 10 su 10 con memoria pulita e contesto attivo. Il ragionamento
+completo, e le alternative scartate, sono nella voce 17.10 di `REVISIONE.md`.
+
+Il punto non è il numero — che vale per *questo* modello — ma che una riga
+sempre presente non richiede nessuna decisione, quindi il comportamento non
+peggiora di nascosto il giorno in cui cambi provider.
+
 Dall'altra parte della coda ci sono due script di shell, descritti al paragrafo
 4.9: `scripts/task-queue.sh` sul server, l'unica cosa che la chiave di sviluppo
 è autorizzata a eseguire, e `scripts/watch-tasks.sh` sul PC, che attende senza

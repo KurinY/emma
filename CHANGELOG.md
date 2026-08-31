@@ -12,6 +12,40 @@ change will always be listed here.
 
 ### Added
 
+- **Context providers**: a `ContextProvider` protocol in `core/router.py` for
+  state that must be in front of the model rather than fetched by it. The
+  router asks each provider once per turn — not once per tool round, since the
+  state cannot change mid-turn — and appends what it returns to the system
+  prompt. A provider that fails is logged and skipped: answering without one
+  line of context beats not answering at all.
+- `DevelopmentContext` reports the shape of the queue in one line, counts and
+  numbers only, and says plainly which source wins when memory disagrees.
+- `tests/test_router_context.py`: 13 tests, including that a broken provider
+  does not degrade the turn and that the state is read once per turn however
+  many tool rounds it takes.
+
+### Fixed
+
+- **A tool is consulted only when the model decides to consult it, and it
+  decided wrong.** Asked which jobs were pending, EMMA reported one of two and
+  described it with the reading the user had explicitly rejected; the logs said
+  `tools=0`. She had not called the tool at all — she had repeated, word for
+  word, a wrong answer given fifteen minutes earlier and since kept in
+  persistent memory.
+
+  This is memory (0.2.0) and tools (0.3.0) damaging each other: an answer
+  derived from a tool, once stored, is indistinguishable from a fact and gets
+  reused instead of re-asked. Nothing about it is specific to development jobs
+  — it applies to any tool reporting state that changes.
+
+  Measured, ten attempts per configuration: 6/10 correct as found, 8/10 with a
+  context provider, 9/10 with a clean history and no provider, 10/10 with both.
+  Instructing the model instead would move those numbers, and move them
+  differently on the next model; a line that is simply present cannot be
+  skipped by any of them.
+- The poisoned history was cleared, with the database backed up first so the
+  deletion stays reversible.
+
 - **EMMA can commission her own development.** She cannot change her own code —
   she is the process that is running — but she can record that a change is
   wanted and report on it afterwards. `core/tasks.py` holds the queue;

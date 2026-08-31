@@ -30,7 +30,7 @@ from core.llm import AnthropicLanguageModel, GroqLanguageModel
 from core.memory import SqliteConversationMemory
 from core.router import Router
 from core.tasks import TaskStore
-from tools.development import development_tools
+from tools.development import DevelopmentContext, development_tools
 
 logger = logging.getLogger("emma")
 
@@ -94,6 +94,11 @@ def create_app(config: Config) -> FastAPI:
         memory=memory,
         system_prompt=system_prompt,
         tools=development_tools(tasks),
+        # The queue's shape goes in front of the model on every turn rather
+        # than waiting to be asked for: whether a tool gets called is the
+        # model's decision, and it repeated a stale answer four times in ten
+        # rather than looking. See REVISIONE.md, entry 17.
+        context_providers=(DevelopmentContext(tasks),),
     )
     telegram = TelegramAdapter(
         token=config.telegram_bot_token,

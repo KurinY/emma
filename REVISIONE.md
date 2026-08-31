@@ -1211,6 +1211,69 @@ strada.
   scenario la sessione la usa da sola: vale la pena che sia una chiave dedicata
   con `command=` ristretto, non quella di amministrazione.
 
+### 17.10 — Lo stato non si chiede a un tool: si mette davanti
+
+**Scoperto in produzione il 31 agosto**, ed è la lezione più generale di tutta
+questa voce.
+
+L'utente ha chiesto a EMMA quali lavori fossero in sospeso. Lei ne ha riportato
+uno su due, descrivendolo per giunta con l'interpretazione che lui aveva
+esplicitamente scartato. Nei log: `tools=0`. **Non aveva chiamato lo strumento
+affatto** — aveva ripetuto, parola per parola, una risposta sbagliata data
+quindici minuti prima e finita nella memoria persistente.
+
+Ecco l'interazione che non avevamo previsto: **la memoria (v0.2) e i tool (v0.3)
+si danneggiano a vicenda.** Una risposta ricavata da un tool, una volta salvata,
+diventa indistinguibile da un fatto; e alla domanda successiva il modello la
+riusa invece di rifare la domanda. Non è specifico dei lavori: vale per
+qualunque strumento che riporti uno stato che cambia.
+
+**Misurato, dieci tentativi per configurazione, stessa domanda:**
+
+| Configurazione | Risposte corrette |
+| --- | --- |
+| cronologia avvelenata, nessun contesto | 6/10 |
+| cronologia avvelenata + contesto | 8/10 |
+| cronologia pulita, nessun contesto | 9/10 |
+
+**Perché non basta istruire il modello.** Un'istruzione nel prompt è una
+richiesta di collaborazione: sposta quei numeri, e li sposta di nuovo — in
+modo diverso — sul modello successivo. Ritarare il prompt a ogni cambio di
+provider è l'opposto della disciplina che regge questo progetto, dove il
+router parla una lingua sola e sono gli adattatori a piegarsi.
+
+**La soluzione: `ContextProvider` in `core/router.py`.** Un protocollo con un
+solo metodo asincrono che restituisce lo stato attuale in una riga. Il router
+lo interroga una volta per turno — non a ogni giro di tool, perché lo stato non
+cambia a metà turno — e accoda il risultato al prompt di sistema.
+
+Le proprietà che contano:
+
+- **Non c'è nessuna decisione da sbagliare.** La riga è presente comunque; una
+  memoria stantia viene contraddetta da qualcosa già sulla pagina, invece che
+  da una consultazione che nessuno ha fatto.
+- **`core/` continua a non sapere cosa sia un task.** Il fornitore glielo passa
+  `main.py`, come i tool: la stessa disciplina della v0.1.
+- **Indipendente dal provider.** È testo nel prompt, non `tool_choice` da
+  tradurre fra due dialetti. Cambiando modello il comportamento non peggiora in
+  silenzio.
+- **Un fornitore che fallisce non costa la risposta.** Viene loggato e saltato.
+
+**Alternative scartate.** Forzare `tool_choice` avrebbe richiesto di
+riconoscere "questa è una domanda di stato" senza usare un modello — confronto
+di parole chiave, fragile e legato alla lingua. Non salvare in memoria le
+risposte derivate da tool toglie il veleno ma anche la continuità: EMMA
+dimenticherebbe ciò che ha appena detto.
+
+**Il limite onesto.** Nemmeno così si arriva a una garanzia: resta una
+decisione del modello, e i numeri restano numeri di *questo* modello. Quello
+che il fornitore dà non è un tasso migliore, è che la verità aggiornata è
+sempre in vista — quindi il comportamento non degrada di nascosto il giorno in
+cui il modello cambia. È stabilità strutturale, non statistica.
+
+**Verdetto: fatto** (31 agosto 2026), insieme alla pulizia della cronologia
+avvelenata, che da sola valeva tre risposte su dieci.
+
 ### 17.9 — Cosa resta fuori, deliberatamente
 
 - **EMMA non conosce il codice.** Lei è l'accettazione, io l'officina. Darle in
