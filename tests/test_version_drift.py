@@ -117,3 +117,27 @@ def test_a_directory_is_not_a_modified_file(tmp_path, when):
     (tmp_path / "newdir").mkdir()
 
     assert modified_since_deploy(tmp_path) == []
+
+
+def test_the_deploys_own_test_run_is_not_drift(tmp_path, when):
+    """What the first real run of this check got wrong.
+
+    The deploy script runs the suite on the server after writing the stamp, so
+    pytest's cache is always newer than the build time it is compared against.
+    Every deploy reported drift, and a check that cries wolf every time is
+    worse than none: it teaches you to ignore the one time it is right.
+    """
+    deployed(tmp_path, when, {"main.py": "print(1)"})
+    touch_after(tmp_path / ".pytest_cache" / "v" / "cache" / "nodeids", when)
+    touch_after(tmp_path / ".ruff_cache" / "0.13.1" / "something", when)
+
+    assert modified_since_deploy(tmp_path) == []
+
+
+def test_a_real_edit_is_still_caught_alongside_the_caches(tmp_path, when):
+    """Widening the exceptions must not have blunted the check."""
+    deployed(tmp_path, when, {"main.py": "print(1)"})
+    touch_after(tmp_path / ".pytest_cache" / "v" / "cache" / "nodeids", when)
+    touch_after(tmp_path / "core" / "llm.py", when)
+
+    assert modified_since_deploy(tmp_path) == ["core/llm.py"]

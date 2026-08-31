@@ -128,8 +128,17 @@ def describe(root: Path | None = None) -> str:
 
 #: Directories that legitimately change after a deploy, and so cannot be
 #: evidence that the code did.  ``data`` holds the live database, ``.venv`` is
-#: rebuilt on the machine, the caches are written as the process runs.
-_CHANGES_ON_ITS_OWN = frozenset({".venv", "data", "__pycache__", ".cache", ".git"})
+#: rebuilt on the machine, and the rest are caches written while things run.
+#:
+#: ``.pytest_cache`` and ``.ruff_cache`` are here because of what happened on
+#: the first real run of this check: the deploy script executes the test suite
+#: on the server *after* writing the stamp, so pytest's cache is always newer
+#: than the build time it is compared against.  Every deploy would have
+#: reported drift, and a check that cries wolf on every deploy is worse than no
+#: check at all -- it teaches you to ignore the one time it is right.
+_CHANGES_ON_ITS_OWN = frozenset(
+    {".venv", "data", "__pycache__", ".cache", ".git", ".pytest_cache", ".ruff_cache"}
+)
 
 
 def modified_since_deploy(root: Path | None = None) -> list[str]:

@@ -1560,6 +1560,51 @@ non puo' verificarsi, e non testabile senza fabbricare la concorrenza che non
 c'e'. **Farlo come primo passo del satellite vocale**, prima di aggiungere il
 secondo canale, non dopo.
 
+## 22. Il deploy non toglie mai niente (proposta, 1 settembre 2026)
+
+Scoperto guardando perche' il controllo della voce 19-bis segnalava un file su
+un deploy appena fatto. La causa immediata era mia ed e' corretta; questa e'
+l'altra cosa che si e' vista strada facendo.
+
+Il passo remoto di `scripts/deploy.sh` fa:
+
+    tar -xzf /tmp/emma-deploy.tar.gz -C /opt/emma
+
+`tar` **sovrascrive, non sincronizza**. Un file cancellato dal repository non
+viene mai rimosso dal server: resta li' per sempre. Le conseguenze, in ordine
+di gravita':
+
+1. **Un modulo Python cancellato resta importabile.** Se domani si toglie
+   `tools/introspection.py` e qualcosa lo importa ancora per errore, in
+   sviluppo l'import fallisce subito e in produzione **funziona**, eseguendo
+   codice che non esiste piu' in nessun commit. E' il tipo di divergenza che
+   rende irriproducibile un bug.
+2. Residui che nessuno ha mai spedito consapevolmente. `/opt/emma/.pytest_cache`
+   c'e' oggi (56K) e `.cache` pure, entrambi gia' nella lista di esclusione
+   dell'archivio: sono arrivati prima che quella lista esistesse e non se ne
+   sono piu' andati.
+3. Un file rinominato esiste in produzione sotto entrambi i nomi.
+
+**Le opzioni**, dalla piu' leggera:
+
+| | Come | Rischio |
+| --- | --- | --- |
+| A | Prima di estrarre, cancellare le sole directory interamente spedite (`core`, `adapters`, `tools`, `tests`, `scripts`, `docs`, `prompts`, `systemd`) | basso, ma se l'estrazione fallisce subito dopo l'installazione resta rotta |
+| B | Estrarre in `/opt/emma.new`, poi scambiare le directory con `mv` | il passo di scambio non e' atomico per `.env`, `data/` e `.venv`, che vanno reinnestati |
+| C | `rsync --delete` con le esclusioni, invece di `tar` | il piu' pulito e il piu' corretto; richiede `rsync` sul server e riscrive meta' dello script |
+
+**Il mio parere: la C.** E' l'unica in cui "cosa deve esserci sul server" e'
+scritto in un posto solo invece di essere la somma di tutti i deploy passati.
+La A e' un cerotto che sposta il rischio sul momento peggiore. La B e'
+complicata proprio dove non deve esserlo.
+
+Non l'ho fatta perche' e' una riscrittura della strada per cui passa ogni
+messa in produzione, e cambiarla all'una di notte subito dopo un deploy
+riuscito non e' una buona idea. Da fare a mente fresca, con un deploy di prova
+verso una directory finta prima di puntarla a `/opt/emma`.
+
+**Verdetto: la C conviene, ma va fatta da sveglio e provata a vuoto prima.**
+
 ## Riepilogo dei verdetti
 
 | # | Voce | Verdetto |
@@ -1584,6 +1629,7 @@ secondo canale, non dopo.
 | 16.4 | Snapshot periodici | fase futura, se la finestra di perdita risultasse troppo larga |
 | 17 | EMMA committente del proprio sviluppo | **da fare come v0.3**: tre tool, coda nel database, checkpoint 1/3/4/5 |
 | 18 | Memoria di fatti persistenti | fase futura |
+| 22 | Il deploy sovrascrive e non sincronizza | **la C** (`rsync --delete`): un modulo cancellato resta importabile in produzione |
 | 21 | Lock per conversazione nel router | non ora; **primo passo del satellite vocale**, prima del secondo canale |
 | 20 | Spezzare `core/llm.py` in tre moduli | **no**: 407 righe di codice su 798, il resto e' documentazione. Fatti deduplicazione e riordino; rivalutare al terzo provider |
 | 19 | Collegare qualcosa a `/health` | **implementata la C**: controllo dentro `backup.sh`, il 31 agosto 2026 |
