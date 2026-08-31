@@ -655,8 +655,25 @@ curl -s http://127.0.0.1:8000/health | python3 -m json.tool
 | `last_degraded_reason` | quale dei quattro guasti, per nome |
 | `seconds_since_degraded` | da quanto: `null` significa mai da quando è partita |
 
-> **Nota.** Nessuno interroga questo endpoint automaticamente: va lanciato a
-> mano. Collegarlo a un controllo periodico è la voce 19 del `REVISIONE.md`.
+**Chi lo interroga.** Dalla 0.3.0 lo fa `scripts/backup.sh`, cioè il job che
+gira comunque ogni notte alle 03:30 — ed è il posto giusto anche per un'altra
+ragione: ha appena copiato il database di quel servizio, quindi ha un motivo
+suo per volerne sapere lo stato. L'esito finisce sia nel journal sia nel
+`MANIFEST.txt` dentro l'archivio, così un backup ripristinato dice anche se il
+servizio stava bene nel momento in cui è stato preso:
+
+```
+database:    emma.db (consistent snapshot, integrity verified)
+service:     ok - {"status":"ok","store":"ok","version":"0.3.0","turns":12,...}
+```
+
+Un servizio spento o degradato **non fa fallire il backup**: un processo fermo
+è una ragione per conservare i dati, non per saltarli. Viene però scritto a
+chiare lettere:
+
+```bash
+journalctl -u emma-backup | grep WARNING | tail
+```
 
 FastAPI e il polling di Telegram condividono **un solo event loop**: uvicorn
 possiede il loop, e l'adapter Telegram viene avviato e fermato dal *lifespan*

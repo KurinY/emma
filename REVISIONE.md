@@ -1419,7 +1419,15 @@ fare senza che tu lo chieda. Le opzioni, dalla più leggera:
 | B | `WatchdogSec=` + `sd_notify` dal processo | una dipendenza in più (`systemd-python`) e codice nel lifespan | systemd **riavvia** EMMA quando smette di stare bene |
 | C | Aggiungere il controllo a `scripts/backup.sh`, che gira già alle 03:30 | poche righe di shell, zero unit nuove | te ne accorgi entro 24 ore, e il backup sa se sta salvando un DB sano |
 
-**Il mio parere:** la **C** è quella che vale di più subito e costa meno di
+**Implementata la C il 31 agosto 2026** (`scripts/backup.sh`): interroga
+`/health` prima di scrivere il manifest, registra l'esito nel journal e nel
+`MANIFEST.txt`, e non fa mai fallire il backup — un servizio fermo è una
+ragione per conservare i dati, non per saltarli. Provata contro un server vero
+nei tre casi (200, 503, nessuna risposta); il terzo ha rivelato un difetto nel
+codice appena scritto, perché `curl` stampa già `000` da solo e il fallback ne
+aggiungeva un secondo.
+
+**Il mio parere era:** la **C** è quella che vale di più subito e costa meno di
 tutte — il job notturno esiste già, gira comunque, e ha una ragione propria per
 voler sapere se il database sta bene *prima* di copiarlo. La **B** è la
 soluzione giusta a lungo termine ma è l'unica che aggiunge una dipendenza, e un
@@ -1497,7 +1505,7 @@ e' corretta ma non urgente — chiedimela quando non e' la sera di un rilascio.*
 | 17 | EMMA committente del proprio sviluppo | **da fare come v0.3**: tre tool, coda nel database, checkpoint 1/3/4/5 |
 | 18 | Memoria di fatti persistenti | fase futura |
 | 20 | Spezzare `core/llm.py` in tre moduli | **fatta la deduplicazione**; la divisione e' corretta ma non urgente |
-| 19 | Collegare qualcosa a `/health` | **la C conviene** (controllo dentro `backup.sh`), ma tocca il deploy: decidi tu |
+| 19 | Collegare qualcosa a `/health` | **implementata la C**: controllo dentro `backup.sh`, il 31 agosto 2026 |
 
 La voce 5 è stata implementata nella v0.1.x (retry solo sugli errori
 transitori). Le 16.1 e 16.2 sono state implementate il 31 agosto 2026. Tutto il

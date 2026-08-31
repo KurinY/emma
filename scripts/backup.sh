@@ -20,6 +20,12 @@
 #   scripts/backup.sh                  # normal run, used by the systemd timer
 #   scripts/backup.sh --dry-run        # show what would happen, write nothing
 #   BACKUP_DIR=/tmp/x scripts/backup.sh   # override the destination once
+#   HEALTH_URL=... scripts/backup.sh   # ask a different health endpoint
+#
+# It also asks the running service whether it is well, because nothing else
+# does and this job runs every night regardless.  An unhealthy or absent
+# service is reported in the log and in the manifest; it never fails the
+# backup, since a stopped process is a reason to keep the data, not to skip it.
 #
 # Exit codes: 0 success, 1 configuration or runtime error.
 
@@ -211,6 +217,52 @@ if [[ -f "${MEMORY_DB}" ]]; then
     fi
 fi
 
+# --------------------------------------------------------------------------- #
+# Health of the running service.
+#
+# Nothing else asks.  /health can report a degraded store, the version actually
+# running and a count of failed turns, and until now no scheduled job ever
+# looked at it -- an endpoint built for monitoring that nothing monitored.
+# This job runs every night whatever else happens, which makes it the cheapest
+# place to notice, and it has a reason of its own to care: it has just copied
+# that service's database.
+#
+# A failure here never fails the backup.  The service may be deliberately
+# stopped, and refusing to keep a copy of the data because the process is not
+# running would be exactly backwards.  It is recorded, loudly, and in the
+# manifest -- so a restored archive also says whether the service was well at
+# the moment it was taken.
+# --------------------------------------------------------------------------- #
+HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8000/health}"
+HEALTH_STATUS="not checked (curl is not installed)"
+
+if command -v curl >/dev/null; then
+    HEALTH_BODY=""
+    # curl prints 000 itself when it never got an answer, so appending our own
+    # fallback would make it 000000 and land in the "degraded" branch below.
+    HEALTH_CODE="$(curl -sS --max-time 5 -o "${STAGING}/health.json"         -w '%{http_code}' "${HEALTH_URL}" 2>/dev/null)" || true
+    HEALTH_CODE="${HEALTH_CODE:-000}"
+    if [[ -f "${STAGING}/health.json" ]]; then
+        HEALTH_BODY="$(head -c 400 "${STAGING}/health.json")"
+    fi
+
+    case "${HEALTH_CODE}" in
+        200)
+            HEALTH_STATUS="ok - ${HEALTH_BODY}"
+            log "service health: ok"
+            ;;
+        000 | "")
+            HEALTH_STATUS="UNREACHABLE: no answer on ${HEALTH_URL}"
+            log "WARNING: the service did not answer on ${HEALTH_URL} (stopped, or wedged)"
+            ;;
+        *)
+            HEALTH_STATUS="DEGRADED (HTTP ${HEALTH_CODE}): ${HEALTH_BODY}"
+            log "WARNING: the service reports itself degraded (HTTP ${HEALTH_CODE}): ${HEALTH_BODY}"
+            ;;
+    esac
+    rm -f "${STAGING}/health.json"
+fi
+
 cat > "${STAGING}/MANIFEST.txt" <<EOF
 EMMA backup manifest
 ======================
@@ -221,6 +273,7 @@ project dir: ${PROJECT_DIR}
 git commit:  ${GIT_COMMIT}
 python:      $(command -v python3 >/dev/null && python3 --version 2>&1 || echo "not found")
 database:    ${DB_STATUS}
+service:     ${HEALTH_STATUS}
 written to:  ${BACKUP_DIR} [${BACKUP_LOCATION}]
 
 Restore:

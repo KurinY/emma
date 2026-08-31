@@ -26,6 +26,25 @@ change will always be listed here.
 
 ### Changed
 
+- **Something finally reads `/health`.** `scripts/backup.sh` now asks the
+  service whether it is well before writing the manifest. That job runs every
+  night regardless, which makes it the cheapest place to notice, and it has a
+  reason of its own to care: it has just copied that service's database. The
+  verdict goes to the journal and into `MANIFEST.txt`, so a restored archive
+  also says whether the service was healthy when it was taken. An unhealthy or
+  absent service never fails the backup — a stopped process is a reason to keep
+  the data, not to skip it.
+
+- **The retry ladder is written once instead of once per provider.** The two
+  clients carried structurally identical `except` ladders, which is how the
+  Groq client came to ignore every tool declaration for a whole release: the
+  feature was added to one copy and not the other, and neither file looked
+  wrong on its own. The two SDKs share a taxonomy exactly, so `_RetryLadder`
+  now takes the SDK module and its root error and both clients climb it.
+  `complete()` drops from 107 and 81 lines to under 40 each, and no
+  provider-specific `except` clause survives. Every log line is unchanged.
+
+
 - **`/health` can now report ill health.** It used to answer `"status": "ok"`
   unconditionally — a liveness check wearing the wrong name, since nothing it
   could ever say would tell you something was wrong. It now reads the
