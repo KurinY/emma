@@ -92,14 +92,39 @@ rigenerato (41 pagine; front matter e footer erano ancora fermi a `v0.2.0`).
   sopravvivergli. Uno shebang con `
 ` fallisce senza dire perche'.
 
+**Done — deploy, coda e i due lavori commissionati:**
+- **Deploy in produzione**, verificato: `/health` risponde `ok`/`store ok` e
+  dichiara lo stesso commit che gira davvero.
+- **Lavoro #5 chiuso — non era un guasto.** Nel database: `sei vivo?` ->
+  "Sono un assistente virtuale...". Turno `groq call ok`, salvato in memoria
+  (i turni degradati non lo sono mai). Era il prompt che chiedeva esattamente
+  quello. Risolto lato prompt: la concisione vale per il lavoro, non per chi lo
+  chiede. Misurato: +172 token a turno, ~5 scambi/giorno in meno sul tetto Groq.
+- **Lavoro #6 fatto**: `abandon_development`, quarto tool. Non cancella — la riga
+  resta `abandoned` con il motivo, come il DB corrotto messo in quarantena.
+  Solo lavori aperti. Verificato contro il modello vero in produzione: turno 1
+  chiede conferma nominando il lavoro, turno 2 chiama il tool, la coda resta con
+  il solo lavoro giusto.
+- **#3 e #4 abbandonati** (prova della coda; duplicato).
+- **`list-all` non elencava tutto**: filtrava sui lavori aperti, quindi a coda
+  vuota non rispondeva niente e lo storico delle decisioni era raggiungibile solo
+  indovinando un id.
+
+**Due errori miei, entrambi trovati provando invece che rileggendo:**
+- Ho scritto nel prompt due istruzioni che si contraddicevano sulla conferma
+  prima di abbandonare. Sulla pagina sembravano una frase sola; l'ha rivelato il
+  modello vero.
+- Due volte ho copiato un file sul server con `scp` invece di fare il deploy,
+  disallineando lo stamp `VERSION` -- esattamente il difetto che quello stamp
+  esiste per impedire, e che avevo appena finito di risolvere. Corretto con un
+  deploy pulito entrambe le volte.
+
 **Pending — richiede una tua decisione:**
-- [ ] **Push su GitHub** e **deploy in produzione**: entrambi sono gate tuoi, non
-      li ho fatti.
-- [ ] ~~`core/llm.py`~~ — risolto sopra; resta la divisione in tre moduli,
-      corretta ma non urgente (`REVISIONE.md` voce 20)
-- [ ] ~~voce 19, `/health`~~ — implementata la C.
-- [ ] Coda di produzione: lavoro #3 in `waiting_user` (marca della luce), lavoro
-      #4 duplicato di #3, da abbandonare se confermi.
+- [ ] Nel messaggio del commit `0fb0b1b` e' rimasto un carattere giapponese
+      (`un試`): si toglie solo riscrivendo la storia, che non faccio senza
+      richiesta esplicita.
+- [ ] `REVISIONE.md` voce 20: dividere `core/llm.py` in tre moduli. La
+      deduplicazione e' fatta; la divisione e' corretta ma non urgente.
 
 ---
 
