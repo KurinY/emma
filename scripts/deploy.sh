@@ -25,6 +25,7 @@
 #   EMMA_DEPLOY_HOST   ssh destination            (default: emma-deploy)
 #   EMMA_REMOTE_DIR    installation directory     (default: /opt/emma)
 #   EMMA_SERVICE       systemd unit               (default: emma.service)
+#   EMMA_KEEP_DAYS     days of safety copies kept (default: 3)
 #
 # EMMA_DEPLOY_HOST is a name, not an address: put the real destination in
 # ~/.ssh/config, which is not in this repository. It needs the administrative
@@ -42,6 +43,9 @@ PROJECT_DIR="$(dirname "$(dirname "${SCRIPT_PATH}")")"
 HOST="${EMMA_DEPLOY_HOST:-emma-deploy}"
 REMOTE="${EMMA_REMOTE_DIR:-/opt/emma}"
 SERVICE="${EMMA_SERVICE:-emma.service}"
+KEEP_DAYS="${EMMA_KEEP_DAYS:-3}"
+
+[[ "${KEEP_DAYS}" =~ ^[0-9]+$ ]] || { echo "EMMA_KEEP_DAYS must be a number" >&2; exit 1; }
 
 DRY_RUN=0
 if [[ "${1:-}" == "--dry-run" ]]; then
@@ -138,7 +142,7 @@ scp -q "${ARCHIVE}" "${HOST}:/tmp/emma-deploy.tar.gz"
 # the service stopped halfway through.
 # --------------------------------------------------------------------------- #
 log "deploying"
-ssh "${HOST}" "REMOTE='${REMOTE}' SERVICE='${SERVICE}' VERSION='${VERSION}' COMMIT='${COMMIT}' BUILT='${BUILT}' bash -s" <<'REMOTE_SCRIPT'
+ssh "${HOST}" "REMOTE='${REMOTE}' SERVICE='${SERVICE}' VERSION='${VERSION}' COMMIT='${COMMIT}' BUILT='${BUILT}' KEEP_DAYS='${KEEP_DAYS}' bash -s" <<'REMOTE_SCRIPT'
 set -euo pipefail
 
 stamp_time="$(date +%Y%m%d-%H%M%S)"
@@ -177,6 +181,17 @@ systemctl is-active --quiet "${SERVICE}" || { echo "  ERROR: the service did not
 
 echo "  service: active"
 echo "  stamped: $(tr '\n' ' ' < "${REMOTE}/VERSION")"
+
+# Prune old safety copies. Deliberately after the service is confirmed back up:
+# if anything above failed, every copy is still there to fall back on.
+#
+# The pattern covers the ones left by hand-written deploys as well, since those
+# are exactly the ones nobody will remember to remove. Today's is never touched:
+# -mtime +N means strictly older than N days.
+pruned="$(find /root -maxdepth 1 -type d -name 'emma-pre-*' -mtime "+${KEEP_DAYS}" -print -exec rm -rf {} + 2>/dev/null | wc -l)"
+kept="$(find /root -maxdepth 1 -type d -name 'emma-pre-*' | wc -l)"
+echo "  safety copies: ${kept} kept, ${pruned} pruned (older than ${KEEP_DAYS} days)"
+
 rm -f /tmp/emma-deploy.tar.gz
 REMOTE_SCRIPT
 
