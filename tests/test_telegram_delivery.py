@@ -268,3 +268,49 @@ async def test_a_failure_to_apologise_is_survived():
     update.effective_chat.send_message.side_effect = TimedOut()
 
     await adapter._on_error(update, build_error_context())  # must not raise
+
+
+# --------------------------------------------------------------------------- #
+# Updates that are not a message to answer
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("effective_message", None),
+        ("effective_user", None),
+        ("effective_chat", None),
+    ],
+)
+async def test_an_update_missing_a_piece_is_ignored(field, value):
+    """PTB delivers more shapes than a chat message; none of them may crash."""
+    adapter, router = build_adapter()
+    update = build_update()
+    setattr(update, field, value)
+
+    await adapter._on_text_message(update, MagicMock())  # must not raise
+
+    router.handle.assert_not_awaited()
+
+
+async def test_a_message_without_text_is_ignored():
+    """A photo, a sticker, a location: nothing for the model to read."""
+    adapter, router = build_adapter()
+    update = build_update()
+    update.effective_message.text = None
+
+    await adapter._on_text_message(update, MagicMock())
+
+    router.handle.assert_not_awaited()
+
+
+async def test_an_unexpected_send_failure_is_not_retried():
+    """Anything outside Telegram's own hierarchy: retrying would repeat it."""
+    adapter, _ = build_adapter()
+    update = build_update()
+    update.effective_message.reply_text.side_effect = ValueError("something odd")
+
+    await adapter._on_text_message(update, MagicMock())
+
+    assert update.effective_message.reply_text.await_count == 1

@@ -97,12 +97,29 @@ class TelegramAdapter:
         logger.info("telegram adapter started (long polling)")
 
     async def stop(self) -> None:
-        """Stop polling and release the Telegram resources, in reverse order."""
-        if self._application.updater is not None and self._application.updater.running:
-            await self._application.updater.stop()
+        """Stop polling and release the Telegram resources, in reverse order.
+
+        Every step is attempted even when the one before it failed. They were
+        chained, so a single raise skipped all the rest and left the HTTP
+        session and PTB's task queue half-released on a process already on its
+        way out. It is the same defect the application lifespan had, one level
+        up, and it is likelier here: about one connection in twenty to Telegram
+        fails from this host, and shutdown is exactly when one gets dropped.
+        """
+        steps: list[tuple[str, Callable[[], Awaitable[None]]]] = []
+        updater = self._application.updater
+        if updater is not None and updater.running:
+            steps.append(("polling", updater.stop))
         if self._application.running:
-            await self._application.stop()
-        await self._application.shutdown()
+            steps.append(("application", self._application.stop))
+        steps.append(("resources", self._application.shutdown))
+
+        for name, close in steps:
+            try:
+                await close()
+            except Exception:  # one stubborn step must not strand the rest
+                logger.exception("could not stop the telegram %s cleanly", name)
+
         logger.info("telegram adapter stopped")
 
     async def _on_text_message(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
