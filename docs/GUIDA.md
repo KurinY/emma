@@ -680,7 +680,7 @@ emma/
 │   └── development.py         i tre strumenti con cui EMMA commissiona sviluppo
 ├── prompts/
 │   └── system_prompt.txt      la personalità di EMMA
-├── scripts/                   backup sul server (bash) e sul PC di sviluppo (PowerShell)
+├── scripts/                   backup, e i due script della coda di sviluppo
 ├── systemd/                   servizio e timer di backup
 ├── tests/                     suite pytest, interamente offline
 ├── data/                      (non in Git) database SQLite e i suoi due snapshot
@@ -800,6 +800,11 @@ Due proprietà da conoscere, perché spiegano perché è fatto così:
   controllo di integrità, gli snapshot e il backup consistente costruiti attorno
   a quel file coprono così anche i lavori. Un secondo database sarebbe rimasto
   scoperto, e in silenzio.
+
+Dall'altra parte della coda ci sono due script di shell, descritti al paragrafo
+4.9: `scripts/task-queue.sh` sul server, l'unica cosa che la chiave di sviluppo
+è autorizzata a eseguire, e `scripts/watch-tasks.sh` sul PC, che attende senza
+consumare nulla.
 
 La tabella `dev_heartbeat` registra quando una sessione di sviluppo ha guardato
 la coda l'ultima volta. Serve perché dietro non c'è un servizio che riparte da
@@ -1220,6 +1225,109 @@ Ti dice quando scatterà la prossima esecuzione.
 | `/etc/systemd/system/emma-backup.{service,timer}` | il backup | root |
 
 Nessuna porta in ascolto verso l'esterno; una sola regola nel firewall, per SSH.
+
+## 4.9 La coda di sviluppo
+
+Serve solo se vuoi commissionare sviluppo a EMMA (paragrafo 5.6). Se salti
+questo paragrafo, EMMA registra comunque le richieste: semplicemente nessuno le
+raccoglie.
+
+Il meccanismo è una sessione di sviluppo, sul PC dove c'è il repository, che
+legge la coda sul server. Per farlo le serve una chiave SSH — e qui c'è una
+scelta che vale la pena fare bene.
+
+### 4.9.1 Perché una chiave dedicata
+
+Quella sessione interroga il server **di continuo e senza che nessuno guardi**.
+Darle la chiave di amministrazione significherebbe mettere la credenziale più
+potente della macchina nell'unico percorso non sorvegliato.
+
+La chiave dedicata è invece vincolata a un solo script, e la restrizione la
+applica `sshd`, non una buona intenzione: chi presenta quella chiave esegue
+`scripts/task-queue.sh` e nient'altro, qualunque comando chieda. Se venisse
+rubata, il danno massimo è scrivere sciocchezze nella coda dei lavori — che poi
+leggi tu — non toccare il sistema.
+
+La chiave di amministrazione resta quella che hai e si usa solo per il deploy,
+che è comunque dietro una tua conferma.
+
+### 4.9.2 Sul PC di sviluppo
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/emma_queue -C "emma task queue" -N ""
+cat ~/.ssh/emma_queue.pub
+```
+
+Poi aggiungi la destinazione a `~/.ssh/config`, che **non** sta nel repository:
+
+```
+Host emma-queue
+    HostName <il-tuo-server>
+    User emma
+    IdentityFile ~/.ssh/emma_queue
+    IdentitiesOnly yes
+```
+
+`IdentitiesOnly yes` evita che SSH provi prima le altre chiavi che hai in giro,
+compresa quella di amministrazione.
+
+### 4.9.3 Sul server
+
+Aggiungi la chiave pubblica appena creata a `/opt/emma/.ssh/authorized_keys`,
+preceduta dalle restrizioni, **tutto su una riga sola**:
+
+```bash
+sudo -u emma tee -a /opt/emma/.ssh/authorized_keys <<'EOF'
+command="/opt/emma/scripts/task-queue.sh",no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA...la-tua-chiave-pubblica...
+EOF
+sudo -u emma chmod 600 /opt/emma/.ssh/authorized_keys
+sudo -u emma chmod 750 /opt/emma/scripts/task-queue.sh
+```
+
+**Verifica.** Dal PC di sviluppo:
+
+```bash
+ssh emma-queue touch           # deve rispondere: ok
+ssh emma-queue list            # la coda, in JSON
+ssh emma-queue whoami          # deve essere RIFIUTATO
+```
+
+L'ultimo comando è quello che conta: se ti risponde con un nome utente invece
+di `refused`, la riga `command=` non è stata applicata e la restrizione non
+esiste. Ricontrolla che sia tutta su una riga e prima della chiave.
+
+### 4.9.4 Le operazioni ammesse
+
+`scripts/task-queue.sh` accetta soltanto questi verbi, e rifiuta ogni altra
+cosa. Non accetta mai SQL: costruisce lui le query, e ogni valore che ci
+finisce dentro è un intero verificato oppure una stringa con gli apici
+raddoppiati.
+
+| Comando | Cosa fa |
+| --- | --- |
+| `list` | i lavori che aspettano lo sviluppatore, in JSON |
+| `list-all` | tutti i lavori aperti |
+| `show <n>` | un lavoro |
+| `touch` | registra che la sessione è viva |
+| `advance <n> <stadio> "<nota>"` | avanza e pone la domanda del checkpoint |
+| `finish <n> "<nota>"` | chiude un lavoro deployato |
+| `abandon <n> "<nota>"` | lo lascia perdere |
+
+Ogni comando aggiorna anche il battito: una sessione che sta lavorando è viva,
+e sarebbe assurdo che risultasse morta perché non ha chiamato `touch`.
+
+### 4.9.5 L'attesa che non costa
+
+`scripts/watch-tasks.sh`, sul PC di sviluppo, interroga la coda e **termina
+appena c'è qualcosa**. È tutto qui il trucco: ad aspettare è uno script di
+shell, che non costa niente, e la sessione che invece costa si sveglia solo
+quando c'è davvero lavoro. Una giornata senza richieste è una giornata di shell
+che dorme.
+
+```bash
+scripts/watch-tasks.sh                       # ogni 5 minuti, per 6 ore
+POLL_SECONDS=60 scripts/watch-tasks.sh       # più reattivo
+```
 
 \newpage
 

@@ -35,6 +35,19 @@ change will always be listed here.
 - `tests/test_tasks.py` and `tests/test_tools_development.py`: 39 tests
   covering the handover between user and developer, the full journey through
   every checkpoint, the staleness warning, and the two stores sharing a file.
+- `scripts/task-queue.sh`: the only command a dedicated SSH key is allowed to
+  run on the server, pinned through `command=` in `authorized_keys`. The
+  development session polls the queue constantly and unattended, so giving it
+  the administrative key would put the most powerful credential on the machine
+  into the one path nobody watches. It accepts seven fixed verbs and no SQL,
+  builds every query itself, and checks each value as an integer or matches it
+  against a fixed list. A stolen development key can write nonsense into the
+  queue — which the user reads — and nothing else.
+- `scripts/watch-tasks.sh`: waits on the queue from the development machine and
+  exits the moment there is work. The waiting is done by a shell loop, which
+  costs nothing, so the session only wakes when there is something to do. The
+  destination is an SSH host alias, never an address, so nothing about the
+  machine reaches the repository.
 - The design, and what was deliberately left out of it, is entry 17 of
   `REVISIONE.md`.
 

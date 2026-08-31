@@ -99,10 +99,17 @@ comes back with the capability. Designed in `REVISIONE.md` entry 17.
 - [ ] Backup + commit
 - [ ] Deploy and verify end to end from Telegram
 
-**Step B — the workshop side** (not repository code)
+**Step B — the workshop side**
 
-- [ ] The script that waits on the queue without burning the session
-- [ ] A dedicated SSH key restricted to the queue, admin key kept for deploys
+- [x] `scripts/task-queue.sh`: the restricted endpoint the development key is
+      pinned to — seven verbs, no SQL, every value checked
+- [x] `scripts/watch-tasks.sh`: waits on the queue in shell so the session only
+      wakes when there is work
+- [x] Docs: GUIDA 4.9 (key setup, allowed verbs, verification)
+- [x] Verified: 18 checks including refused shell injection, refused SQL
+      injection, and a Python-to-shell-to-Python round trip
+- [ ] Generate the dedicated key and install it on the server (needs a deploy)
+- [ ] Run the loop end to end once
 
 **Later, once the loop is closed**
 
