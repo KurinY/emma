@@ -141,7 +141,7 @@ beat() {
 
 TASK_COLUMNS="id, request, stage, status, note, answer, created_at, updated_at"
 
-VALID_VERBS=(list list-all show touch advance finish abandon)
+VALID_VERBS=(list list-all show touch create advance finish abandon)
 case " ${VALID_VERBS[*]} " in
     *" ${VERB} "*) ;;
     *) die "unknown command '${VERB}' (${VALID_VERBS[*]})" ;;
@@ -169,6 +169,20 @@ case "${VERB}" in
         # Already recorded above; this verb exists so the watcher can say "still
         # here" during a long quiet stretch without asking for anything.
         echo ok
+        ;;
+
+    create)
+        # Normally a task is born from the user, through EMMA. This exists for
+        # the other case: something found while working on the code, which
+        # would otherwise live only in a developer's memory. It changes nothing
+        # about who decides - a task opened here still stops at checkpoint 1
+        # and asks the user "shall I?" before any of it gets built.
+        request="$(trailing_text 1)"
+        [[ -n "${request}" ]] || die "create needs a description of the work"
+        write "INSERT INTO tasks(created_at, updated_at, request, stage, status)
+               VALUES(strftime('%s','now'), strftime('%s','now'),
+                      '$(sql_escape "${request}")', 'new', 'queued')"
+        sqlite3 "${DB}" "SELECT 'created #' || MAX(id) FROM tasks"
         ;;
 
     advance)

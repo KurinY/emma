@@ -43,6 +43,18 @@ change will always be listed here.
   builds every query itself, and checks each value as an integer or matches it
   against a fixed list. A stolen development key can write nonsense into the
   queue — which the user reads — and nothing else.
+- `scripts/queue-brief.sh`: a `SessionStart` hook that reports how many
+  commissioned jobs are waiting. Nothing runs the queue on its own, so a
+  request left overnight sits there until somebody thinks to look; this makes
+  noticing automatic. It reports a count and not the requests themselves —
+  reading them costs context in every session, including the ones that never
+  touch them — and stays silent, exiting successfully, when the queue is empty
+  or the server is unreachable.
+- `scripts/task-queue.sh` gains `create`, for a defect found while working on
+  the code, which would otherwise live only in a developer's memory. It moves
+  nothing about who decides: a job opened this way still stops at the first
+  checkpoint and asks. Jobs that originate with the user still arrive through
+  EMMA.
 - `scripts/watch-tasks.sh`: waits on the queue from the development machine and
   exits the moment there is work. The waiting is done by a shell loop, which
   costs nothing, so the session only wakes when there is something to do. The

@@ -122,10 +122,26 @@ comes back with the capability. Designed in `REVISIONE.md` entry 17.
 - [x] Tests: 24 new, 115 total, ruff clean
 - [x] Verified against the live API: prefix registers, missing capability is
       proposed not registered, status answered from the database
-- [ ] Deploy step C (production still runs the version without tool support)
-- [ ] Push, once it has been seen working in production
+- [x] Deploy step C and push, verified against the live API on the deployed code
 
-**Later, once the loop is closed**
+**Step D — closing the loop**
+
+- [x] `scripts/queue-brief.sh` + a `SessionStart` hook, so a session opens
+      knowing whether work is waiting rather than only if someone looks
+- [x] `create` verb, for a defect found while working rather than commissioned;
+      it still stops at checkpoint 1 and asks
+- [x] The loop ran end to end for real: commissioned from Telegram, read from
+      the queue with the restricted key, answered with checkpoint 1
+
+**Commissioned, waiting on the user**
+
+- [ ] #1 — EMMA reports which version of herself is running (a `VERSION` file
+      stamped at deploy: the server has no git checkout to read a commit from)
+- [ ] #2 — retry the send on `TimedOut`, and stop the typing indicator being
+      fatal. Roughly 1 connection in 20 to Telegram fails from this IPv6-only
+      host, and a failed send currently kills the turn in silence.
+
+**Later**
 
 - [ ] Tools that serve the user rather than the mechanism: notes, reminders,
       web search

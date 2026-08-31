@@ -1309,12 +1309,44 @@ raddoppiati.
 | `list-all` | tutti i lavori aperti |
 | `show <n>` | un lavoro |
 | `touch` | registra che la sessione è viva |
+| `create "<descrizione>"` | apre un lavoro trovato lavorando al codice |
 | `advance <n> <stadio> "<nota>"` | avanza e pone la domanda del checkpoint |
 | `finish <n> "<nota>"` | chiude un lavoro deployato |
 | `abandon <n> "<nota>"` | lo lascia perdere |
 
 Ogni comando aggiorna anche il battito: una sessione che sta lavorando è viva,
 e sarebbe assurdo che risultasse morta perché non ha chiamato `touch`.
+
+`create` esiste per un caso solo: un difetto scoperto **mentre** si lavora al
+codice, che altrimenti resterebbe nella memoria di chi l'ha visto. Non sposta
+il controllo — un lavoro aperto così si ferma comunque al primo checkpoint e ti
+chiede *"procedo?"* prima che venga costruito qualcosa. I lavori che nascono da
+te continuano ad arrivare da EMMA (paragrafo 5.6).
+
+### 4.9.6 L'hook che ti avvisa all'apertura
+
+Dietro la coda non c'è un servizio: se nessuna sessione è aperta, i lavori si
+accumulano e nessuno se ne accorge. `scripts/queue-brief.sh` chiude questa
+falla — eseguito come hook `SessionStart`, dice quanti lavori attendono.
+
+In `.claude/settings.local.json` del posto da cui lavori:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command",
+        "command": "bash '<percorso>/emma/scripts/queue-brief.sh'",
+        "timeout": 20 } ] }
+    ]
+  }
+}
+```
+
+Riporta **solo il numero**, non il testo delle richieste: leggerle costerebbe
+contesto in ogni sessione, comprese quelle in cui non verranno toccate. Se la
+coda è vuota, o il server è irraggiungibile, non stampa niente ed esce con
+successo — una sessione non deve fallire l'avvio perché una macchina è spenta.
 
 ### 4.9.5 L'attesa che non costa
 
@@ -1836,6 +1868,57 @@ curl -s http://127.0.0.1:8000/health          # 3. il processo risponde?
   `TELEGRAM_ALLOWED_USER_ID` e riavvia. (I log ti hanno appena detto la risposta.)
 - **C'è `incoming message` ma non `answered`** → il problema è verso Anthropic:
   cerca `anthropic call failed`.
+
+### I messaggi arrivano ma EMMA non risponde mai
+
+Sintomo insidioso: il servizio è `active`, i log mostrano `incoming message`,
+ma nessun `answered` — e dal telefono è indistinguibile da un bot spento.
+
+```bash
+journalctl -u emma --since "30 min ago" | grep -E "TimedOut|incoming|answered"
+```
+
+Se vedi `telegram.error.TimedOut` con `httpcore.ConnectTimeout` su `connect_tcp`,
+il processo non riesce ad aprire **nuove** connessioni verso Telegram, mentre la
+connessione del long polling — già stabilita — continua a funzionare. Per questo
+i messaggi entrano e le risposte no.
+
+Prima di tutto escludi che sia la macchina:
+
+```bash
+sudo -u emma curl -s -o /dev/null -w "%{http_code} in %{time_total}s\n" \
+  --max-time 15 https://api.telegram.org/
+```
+
+Se `curl` risponde in una frazione di secondo, la rete è a posto e il problema è
+il pool di connessioni del processo, rimasto appeso dopo un disturbo di rete.
+**Si risolve con un riavvio**, che lo ricrea da zero:
+
+```bash
+sudo systemctl restart emma.service
+```
+
+> **Attenzione a come misuri se è risolto.** `journalctl --since "10 min ago"`
+> può risalire a prima del riavvio e farti ricontare i vecchi errori, facendoti
+> credere che il problema persista. Usa l'istante del riavvio:
+> ```bash
+> R=$(systemctl show emma.service -p ActiveEnterTimestamp --value)
+> journalctl -u emma --since "$R" | grep -c TimedOut
+> ```
+
+**Se ricapita spesso**, la causa di fondo è la rete verso Telegram. Misurala:
+
+```bash
+for i in $(seq 1 20); do
+  sudo -u emma curl -s -o /dev/null --max-time 6 https://api.telegram.org/ \
+    && echo -n . || echo -n X
+done; echo
+```
+
+Su un server solo IPv6 una percentuale di fallimenti è normale: c'è un unico
+indirizzo raggiungibile e nessun IPv4 su cui ripiegare. Con il codice attuale un
+invio fallito uccide il turno in silenzio, quindi quella percentuale è anche la
+quota di messaggi che resteranno senza risposta.
 
 ### `configuration error: required environment variable ... is missing`
 

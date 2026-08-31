@@ -184,14 +184,49 @@ toccare la produzione: prefisso `sviluppo:` registra, capacità mancante viene
 
 115 test verdi, ruff pulito.
 
+**Done (continued) — passo B3 e primo giro reale del ciclo:**
+- Hook `SessionStart` (`scripts/queue-brief.sh` + `.claude/settings.local.json`):
+  conta i lavori in attesa all'apertura di ogni sessione. Riporta solo il
+  numero, non il testo. Tace ed esce 0 se il server è irraggiungibile.
+- `scripts/task-queue.sh`: aggiunto il verbo `create` — mancava un posto dove
+  mettere un difetto trovato lavorando al codice. Non sposta il controllo: si
+  ferma comunque al checkpoint 1.
+- **Primo giro reale**: l'utente ha commissionato il lavoro #1 da Telegram alle
+  10:21, io l'ho letto dalla coda con la chiave ristretta e gli ho dato il
+  checkpoint 1. Il meccanismo funziona end-to-end.
+
+**Incidente in produzione (31/08, 13:17) — EMMA non rispondeva:**
+
+Sintomo: servizio `active`, `incoming message` nei log, nessun `answered`.
+Causa: `httpcore.ConnectTimeout` su `connect_tcp` — il processo non apriva
+**nuove** connessioni verso Telegram, mentre quella del long polling, già
+stabilita, funzionava. Per questo i messaggi entravano e le risposte no.
+
+Escluso tutto il resto prima di agire: database integro, Groq raggiungibile,
+`curl` come utente `emma` a 0,11s, descrittori di file 14 su 1024. Pool di
+connessioni httpx incagliato → **risolto con un riavvio**.
+
+Due lezioni registrate in `docs/GUIDA.md` (nuovo caso in 6.7):
+1. **Misurare con la finestra giusta.** Avevo concluso che il riavvio non
+   avesse funzionato usando `--since "10 min ago"`, che risaliva a prima del
+   riavvio e ricontava i vecchi errori. Con `ActiveEnterTimestamp`: zero
+   timeout. Errore mio, corretto.
+2. **Fragilità di fondo trovata misurando:** su 20 connessioni a Telegram, una
+   fallisce. Il VPS ha un solo indirizzo IPv6 e nessun IPv4 di ripiego. Con il
+   codice attuale un invio fallito uccide il turno in silenzio, quindi ~1
+   messaggio su 20 resterebbe senza risposta. Registrato come lavoro #2.
+
 **Pending:**
-- [ ] **Deploy del passo C**: la produzione gira ancora la versione senza
-      supporto ai tool, quindi i tre strumenti sono registrati ma inerti.
-      Non rompono nulla, semplicemente non partono.
-- [ ] **Push**, tenuto fermo di proposito finché il meccanismo non è stato
-      visto funzionare in produzione.
-- [ ] Decidere se mettere `uv.lock` in `.gitignore` (ridondante rispetto a
-      `requirements.txt`, che ha già le versioni fissate).
+Passo C deployato, pushato e verificato in produzione; `uv.lock` messo in
+`.gitignore`. Restano aperti solo i due lavori in coda:
+
+- [ ] **Lavoro #1** — EMMA sa dire quale versione di sé sta girando. Al
+      checkpoint 1, attende il consenso dell'utente sul piano (file `VERSION`
+      scritto al deploy, letto all'avvio, esposto da un tool e da `/health`;
+      serve perché sul server non c'è un checkout git da cui leggere il commit).
+- [ ] **Lavoro #2** — reinvio su `TimedOut` in `adapters/telegram.py`, e
+      indicatore "sta scrivendo" non fatale visto che è cosmetico. Motivato
+      dall'incidente e dal 5% di connessioni fallite misurato.
 
 ---
 
