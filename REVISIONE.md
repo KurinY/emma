@@ -1290,6 +1290,112 @@ quattro volte invece che mai.
 
 ---
 
+## 18. Memoria di fatti persistenti (proposta, 31 agosto 2026)
+
+**Da dove nasce.** Domanda tua: *"se le chiedo di ricordarsi che a=2, dopo 20
+prompt se lo scorda?"* Sì, e peggio di come sembra — verificato eseguendo il
+codice, non deducendolo.
+
+### 18.1 — Cosa succede davvero oggi
+
+`MAX_HISTORY_MESSAGES` conta **messaggi, non scambi**: ogni scambio ne consuma
+due, quindi 20 sono circa dieci scambi. Un fatto detto all'inizio sopravvive
+fino al nono e sparisce al decimo.
+
+E non "si scorda": `SqliteConversationMemory._prune_locked` esegue una `DELETE`.
+Il database non conserva tutto mostrandone venti — **ne conserva venti in
+tutto**. Quel testo non è più recuperabile da nessuno, nemmeno leggendo il file.
+
+Il criterio di sopravvivenza è l'**età**, non l'importanza: `a=2` muore insieme
+a "che ore sono".
+
+### 18.2 — Dove vanno i token, misurato
+
+Prima di proporre qualcosa vale la pena sapere cosa costa cosa. Stima a ~4
+caratteri per token, validata contro i log reali (1.927 stimati, 1.900–2.600
+osservati):
+
+| Componente | Token | Quota |
+| --- | --- | --- |
+| prompt di sistema | ~755 | 39% |
+| dichiarazioni dei tool | ~537 | 28% |
+| cronologia (20 messaggi) | ~600 | 31% |
+| riga di contesto | ~35 | 2% |
+
+**Il costo fisso è più del doppio della cronologia.** Ne segue una correzione a
+un consiglio che avevo dato a voce: ridurre `MAX_HISTORY_MESSAGES` da 20 a 10
+risparmia ~300 token su 1.900, cioè il **15%**, non "quasi metà". Si
+perderebbe metà della memoria per un sesto del consumo: **non conviene, e la
+voce esiste anche per non ripetere quell'errore.**
+
+Le leve vere sul consumo sono il prompt di sistema e le descrizioni dei tool —
+pagati anche quando l'utente scrive solo "ciao". Ma sono anche ciò che fa
+decidere bene al modello, quindi accorciarli è un compromesso, non un
+guadagno netto.
+
+### 18.3 — Le strade, e perché ne resta una
+
+| Strada | Pro | Contro |
+| --- | --- | --- |
+| finestra più grande | una riga nel `.env` | costo lineare, beneficio modesto (18.2) |
+| **fatti persistenti** | non scadono, costano poco, indipendenti dal provider | qualcuno deve decidere cos'è un fatto |
+| riassunto automatico | conserva il senso a costo ridotto | perdita imprevedibile, e **un riassunto sbagliato è peggio dell'assenza** (voce 17.10) |
+| ricerca sui messaggi vecchi | storia illimitata | serve infrastruttura fuori scala per questo progetto |
+
+Il riassunto lo scarterei per la lezione della voce 17.10: la risposta
+plausibile e sbagliata è quella che nessuno pensa di verificare.
+
+### 18.4 — La forma: un modulo, non un pezzo del core
+
+I due punti di innesto esistono già e sono stati costruiti oggi: il protocollo
+`Tool` e il protocollo `ContextProvider`. Un modulo di memoria sarebbe
+`tools/memory/` con i suoi tool, il suo fornitore di contesto e la sua tabella,
+registrato con **una riga in `main.py`** — e tolto togliendo quella riga.
+
+`core/` continuerebbe a non sapere cosa sia un ricordo, come oggi non sa cosa
+sia un task.
+
+### 18.5 — Il rapporto con il memory tool di Anthropic
+
+Esiste ed è reale: si dichiara `{"type": "memory_20250818", "name": "memory"}`,
+il modello riceve operazioni su file (`view`, `create`, `str_replace`, `insert`,
+`delete`, `rename`) e il backend lo implementi tu — l'SDK Python offre
+`BetaAbstractMemoryTool` come base.
+
+**Ma è uno strumento definito da Anthropic**, quindi non funziona su Groq.
+Adottarlo legherebbe la memoria a un provider, che è esattamente il vincolo che
+l'utente ha posto per la voce 17.10. Quello che si può prendere è **il pattern,
+non l'API**: un tool per scrivere, uno per leggere, e l'iniezione nel contesto.
+
+Si perderebbe la sofisticazione — lì il modello organizza da sé un albero di
+file, qui si avrebbe una lista piatta. Per un assistente personale la lista
+piatta è probabilmente sufficiente, e si può sempre approfondire dopo.
+
+Da notare: il memory tool di Anthropic **ha lo stesso punto debole** misurato
+nella voce 17.10, perché resta uno strumento che il modello deve *scegliere* di
+usare. La difesa è la stessa: il fornitore di contesto.
+
+### 18.6 — Il problema vero, che nessuna strada risolve
+
+**Chi decide cos'è un fatto degno di memoria.**
+
+- Lo decide il modello → sbaglia, e non è un'ipotesi: 6 volte su 10 non
+  chiamava nemmeno lo strumento che aveva davanti (17.10).
+- Lo decide l'utente con un prefisso esplicito (*"ricorda: a=2"*) → affidabile,
+  meno magico. È la stessa scelta fatta per `sviluppo:` in 17.6, e lì ha retto.
+
+E il problema che nessuno dei due affronta: **i fatti si contraddicono e
+invecchiano.** `a=2` oggi, `a=3` fra un mese, e ora ce ne sono due. Serve una
+politica dichiarata — l'ultimo vince? te lo chiede? — e una potatura, altrimenti
+crescono finché non costano quanto la finestra che dovevano sostituire.
+
+**Verdetto: da fare, ma non prima che il progetto sia stabile.** È il tool più
+utile fra quelli in lista — un assistente che dimentica tutto dopo dieci scambi
+resta una chat — ma va progettato con la politica dei conflitti decisa *prima*,
+non scoperta dopo.
+
+---
+
 ## Riepilogo dei verdetti
 
 | # | Voce | Verdetto |

@@ -262,8 +262,8 @@ class SqliteConversationMemory(ConversationMemory):
     async def get_history(self, conversation_id: str) -> list[StoredMessage]:
         """Return stored messages for the conversation, oldest first."""
         async with self._lock:
-            assert self._db is not None, "call open() before using the store"
-            cursor = await self._db.execute(
+            db = self._require_open()
+            cursor = await db.execute(
                 "SELECT role, content FROM messages WHERE conv_id = ? ORDER BY id",
                 (conversation_id,),
             )
@@ -273,55 +273,69 @@ class SqliteConversationMemory(ConversationMemory):
     async def append(self, conversation_id: str, message: StoredMessage) -> None:
         """Persist ``message`` and re-apply the sliding window."""
         async with self._lock:
-            assert self._db is not None, "call open() before using the store"
-            await self._db.execute(
+            db = self._require_open()
+            await db.execute(
                 "INSERT INTO messages(conv_id, role, content, ts) VALUES(?,?,?,?)",
                 (conversation_id, message.role, message.content, time.time()),
             )
-            await self._db.commit()
+            await db.commit()
             await self._prune_locked(conversation_id)
 
     async def prune(self, conversation_id: str) -> None:
         """Re-apply the sliding window to a stored conversation."""
         async with self._lock:
-            assert self._db is not None, "call open() before using the store"
+            self._require_open()
             await self._prune_locked(conversation_id)
 
     async def _prune_locked(self, conversation_id: str) -> None:
         """Trim one conversation.  The caller must already hold the lock."""
-        assert self._db is not None
+        db = self._require_open()
 
-        cur = await self._db.execute(
+        cur = await db.execute(
             "SELECT COUNT(*) FROM messages WHERE conv_id = ?", (conversation_id,)
         )
         (count,) = await cur.fetchone()
 
         excess = count - self._max_messages
         if excess > 0:
-            cur = await self._db.execute(
+            cur = await db.execute(
                 "SELECT id FROM messages WHERE conv_id = ? ORDER BY id LIMIT ?",
                 (conversation_id, excess),
             )
             ids = [row[0] for row in await cur.fetchall()]
             if ids:
                 placeholders = ",".join("?" * len(ids))
-                await self._db.execute(f"DELETE FROM messages WHERE id IN ({placeholders})", ids)
+                await db.execute(f"DELETE FROM messages WHERE id IN ({placeholders})", ids)
 
         # Never start on an assistant message.
-        cur = await self._db.execute(
+        cur = await db.execute(
             "SELECT id, role FROM messages WHERE conv_id = ? ORDER BY id LIMIT 1",
             (conversation_id,),
         )
         row = await cur.fetchone()
         while row and row[1] != "user":
-            await self._db.execute("DELETE FROM messages WHERE id = ?", (row[0],))
-            cur = await self._db.execute(
+            await db.execute("DELETE FROM messages WHERE id = ?", (row[0],))
+            cur = await db.execute(
                 "SELECT id, role FROM messages WHERE conv_id = ? ORDER BY id LIMIT 1",
                 (conversation_id,),
             )
             row = await cur.fetchone()
 
-        await self._db.commit()
+        await db.commit()
+
+    def _require_open(self) -> aiosqlite_t.Connection:
+        """Return the connection, or say plainly that nobody opened it.
+
+        Deliberately not an ``assert``.  Python strips those under ``-O``, and
+        what is left in their place is an ``AttributeError`` on ``None`` from
+        somewhere deeper -- an error naming neither the cause nor the fix, in
+        the one build where you are least able to investigate.  The check is
+        also cheap next to the query that follows it, so there is nothing to
+        buy back by removing it.
+        """
+        if self._db is None:
+            raise RuntimeError("call open() on the conversation memory before using it")
+        return self._db
 
     # ----------------------------------------------------------------- #
     # Integrity and recovery
@@ -425,12 +439,12 @@ class SqliteConversationMemory(ConversationMemory):
         A failure here is logged and swallowed: not having a fresh snapshot is
         a degraded state, not a reason to refuse to run.
         """
-        assert self._db is not None
+        db = self._require_open()
 
         tmp = self._snapshot.with_name(self._snapshot.name + ".tmp")
         try:
             tmp.unlink(missing_ok=True)  # VACUUM INTO refuses an existing target
-            await self._db.execute("VACUUM INTO ?", (str(tmp),))
+            await db.execute("VACUUM INTO ?", (str(tmp),))
         except Exception as exc:  # snapshotting must never be fatal
             logger.warning("could not write the database snapshot: %s", exc)
             tmp.unlink(missing_ok=True)

@@ -18,7 +18,6 @@ Two properties are worth calling out:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
@@ -34,6 +33,7 @@ from telegram.ext import (
     filters,
 )
 
+from core.retry import DEFAULT_MAX_ATTEMPTS, pause_before_retry
 from core.router import AssistantRequest, Router
 
 logger = logging.getLogger(__name__)
@@ -42,12 +42,10 @@ logger = logging.getLogger(__name__)
 #: little earlier to stay clear of the boundary.
 MAX_MESSAGE_LENGTH = 4000
 
-#: Attempts for a call to Telegram, and the pause before the second one, which
-#: doubles thereafter: 1s, then 2s.  The same policy as :mod:`core.llm`, for
-#: the same reason -- absorb a blip without turning a permanent failure into a
-#: long wait.
-DEFAULT_SEND_ATTEMPTS = 3
-DEFAULT_SEND_BACKOFF_SECONDS = 1.0
+#: Attempts for a call to Telegram.  The policy itself lives in core.retry:
+#: the model client and this adapter fail for the same kind of reason, and had
+#: been given the same answer written out twice.
+DEFAULT_SEND_ATTEMPTS = DEFAULT_MAX_ATTEMPTS
 
 _T = TypeVar("_T")
 
@@ -198,8 +196,7 @@ class TelegramAdapter:
                     type(exc).__name__,
                     exc,
                 )
-                if attempt < DEFAULT_SEND_ATTEMPTS:
-                    await asyncio.sleep(DEFAULT_SEND_BACKOFF_SECONDS * 2 ** (attempt - 1))
+                await pause_before_retry(attempt, DEFAULT_SEND_ATTEMPTS)
             except Exception:
                 logger.exception("telegram rejected the message permanently")
                 return False

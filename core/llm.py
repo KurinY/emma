@@ -17,13 +17,18 @@ It exposes:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 import anthropic
+
+from core.retry import (
+    DEFAULT_BACKOFF_SECONDS,
+    DEFAULT_MAX_ATTEMPTS,
+    pause_before_retry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,13 +41,6 @@ Message = dict[str, Any]
 #: Maximum number of tokens the model may produce in a single reply.  Generous
 #: enough for a chat answer, small enough to bound cost and latency.
 DEFAULT_MAX_TOKENS = 2048
-
-#: How many times a single logical call is attempted before giving up.
-DEFAULT_MAX_ATTEMPTS = 3
-
-#: Delay before the second attempt, in seconds.  It doubles at every further
-#: attempt: 1s, then 2s.
-DEFAULT_BACKOFF_SECONDS = 1.0
 
 #: Per-request timeout, in seconds.  Without it a hung connection would keep a
 #: Telegram handler waiting forever.
@@ -249,10 +247,7 @@ class AnthropicLanguageModel:
                     type(exc).__name__,
                     exc,
                 )
-                if attempt < self._max_attempts:
-                    # 1s, then 2s, then 4s...  Exponential, so a short outage
-                    # is absorbed without hammering the API.
-                    await asyncio.sleep(self._backoff_seconds * 2 ** (attempt - 1))
+                await pause_before_retry(attempt, self._max_attempts, self._backoff_seconds)
                 continue
             except anthropic.APIStatusError as exc:
                 if exc.status_code >= 500:
@@ -265,8 +260,7 @@ class AnthropicLanguageModel:
                         type(exc).__name__,
                         exc,
                     )
-                    if attempt < self._max_attempts:
-                        await asyncio.sleep(self._backoff_seconds * 2 ** (attempt - 1))
+                    await pause_before_retry(attempt, self._max_attempts, self._backoff_seconds)
                     continue
                 # 4xx: permanent failure (wrong key, bad request, etc.).
                 # Retrying cannot help; surface it immediately.
@@ -379,8 +373,7 @@ class GroqLanguageModel:
                     type(exc).__name__,
                     exc,
                 )
-                if attempt < self._max_attempts:
-                    await asyncio.sleep(self._backoff_seconds * 2 ** (attempt - 1))
+                await pause_before_retry(attempt, self._max_attempts, self._backoff_seconds)
                 continue
             except self._groq_sdk.APIStatusError as exc:
                 if exc.status_code >= 500:
@@ -392,8 +385,7 @@ class GroqLanguageModel:
                         type(exc).__name__,
                         exc,
                     )
-                    if attempt < self._max_attempts:
-                        await asyncio.sleep(self._backoff_seconds * 2 ** (attempt - 1))
+                    await pause_before_retry(attempt, self._max_attempts, self._backoff_seconds)
                     continue
                 logger.error(
                     "groq call rejected permanently (attempt %d/%d): HTTP %s %s: %s",

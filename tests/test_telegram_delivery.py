@@ -24,10 +24,14 @@ ALLOWED_USER = 4242
 
 @pytest.fixture(autouse=True)
 def no_waiting(monkeypatch):
-    """Collapse the backoff so the suite stays fast."""
-    import adapters.telegram as mod
+    """Collapse the backoff so the suite stays fast.
 
-    monkeypatch.setattr(mod.asyncio, "sleep", AsyncMock())
+    Patched in :mod:`core.retry`, which is where the waiting now happens: the
+    adapter asks for the pause rather than performing it.
+    """
+    import core.retry
+
+    monkeypatch.setattr(core.retry.asyncio, "sleep", AsyncMock())
 
 
 def build_adapter(reply: str = "ecco la risposta") -> tuple[TelegramAdapter, MagicMock]:
