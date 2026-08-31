@@ -1477,8 +1477,49 @@ dimensione del file: la duplicazione era gia' sparita, nessuna funzione supera
 le 40 righe tranne le traduzioni pure, la copertura e' al 94%. Un lettore che
 insegue `LLMResponse` aprirebbe tre file invece di uno.
 
-**Verdetto: la deduplicazione conviene ed e' fatta. La divisione in tre moduli
-e' corretta ma non urgente — chiedimela quando non e' la sera di un rilascio.**
+### Ripreso il 1 settembre 2026, su domanda diretta: lo spezzeresti?
+
+No. E misurando ho cambiato idea su **quale** sia il problema.
+
+Il file sembra grande il doppio di quello che e'. Contando alla stessa maniera
+in tutti i moduli — righe totali meno docstring, commenti e righe vuote:
+
+| Modulo | Codice vero | File |
+| --- | --- | --- |
+| `core/llm.py` | **407** | 798 |
+| `core/memory.py` | 232 | 472 |
+| `core/router.py` | 204 | 488 |
+| `core/tasks.py` | 172 | 348 |
+| `adapters/telegram.py` | 144 | 303 |
+
+Il 34% di `core/llm.py` sono docstring, che in questo progetto sono deliberate.
+407 righe di codice in un modulo non sono un difetto, e spezzare sulla base
+delle 798 vorrebbe dire reagire a un numero che misura soprattutto prosa. In
+piu' servirebbero **tre** file e non due, per l'import circolare descritto
+sopra: tre file per 407 righe peggiorano la navigazione invece di migliorarla.
+
+**Il problema vero era un altro, e il conteggio delle righe lo nascondeva.**
+`_RetryLadder` chiamava `_check_rate_limit` intorno alla riga 280, e quella
+funzione era definita alla 537: leggendo dall'alto si incontrava la chiamata
+**trecento righe prima della sua definizione**. E' questo che fa sembrare un
+file piu' lungo di quanto sia — e spezzarlo non lo risolve, lo sposta in un
+altro file.
+
+Corretto il 1 settembre 2026: le tre funzioni che classificano un guasto sono
+salite sopra la scala che le usa, e il modulo ha sei separatori di sezione. Ora
+si legge dall'alto in basso senza salti: errori, di cosa e' fatta una risposta,
+come si giudica un guasto, la scala, i due client, la traduzione dei dialetti.
+Nessun altro modulo del progetto ha separatori, perche' nessun altro e'
+abbastanza lungo da averne bisogno.
+
+**Quando spezzarlo davvero: al terzo provider.** Oggi ci sono due dialetti
+(Anthropic nativo, e Groq che parla OpenAI). Un terzo renderebbe la traduzione
+la preoccupazione dominante del file, e a quel punto la cucitura vale il terzo
+modulo che costa. E' un criterio verificabile, non un "piu' avanti".
+
+**Verdetto: deduplicazione e riordino convengono e sono fatti. La divisione in
+tre moduli non conviene ora — rifarsi la domanda quando arriva un terzo
+provider.**
 
 ## 21. Un turno alla volta, e nessuno lo scrive (proposta, 1 settembre 2026)
 
@@ -1544,7 +1585,7 @@ secondo canale, non dopo.
 | 17 | EMMA committente del proprio sviluppo | **da fare come v0.3**: tre tool, coda nel database, checkpoint 1/3/4/5 |
 | 18 | Memoria di fatti persistenti | fase futura |
 | 21 | Lock per conversazione nel router | non ora; **primo passo del satellite vocale**, prima del secondo canale |
-| 20 | Spezzare `core/llm.py` in tre moduli | **fatta la deduplicazione**; la divisione e' corretta ma non urgente |
+| 20 | Spezzare `core/llm.py` in tre moduli | **no**: 407 righe di codice su 798, il resto e' documentazione. Fatti deduplicazione e riordino; rivalutare al terzo provider |
 | 19 | Collegare qualcosa a `/health` | **implementata la C**: controllo dentro `backup.sh`, il 31 agosto 2026 |
 
 La voce 5 è stata implementata nella v0.1.x (retry solo sugli errori
