@@ -63,3 +63,27 @@ async def pause_before_retry(
     """
     if attempt < max_attempts:
         await asyncio.sleep(backoff_delay(attempt, base))
+
+
+def remaining_backoff(
+    attempt: int,
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    base: float = DEFAULT_BACKOFF_SECONDS,
+) -> float:
+    """Return how long the retries still to come would wait in total.
+
+    Used to answer a question that only arises when the other end tells us how
+    long to wait: is retrying worth it at all?  A server asking for eleven
+    minutes will not be satisfied by three, and spending the attempts anyway
+    only delays a refusal that is already certain -- with someone waiting at
+    the other end of it.
+
+    Args:
+        attempt: The attempt that has just failed, counting from 1.
+        max_attempts: How many attempts there are in total.
+        base: The pause before the second attempt.
+
+    Returns:
+        The sum of the pauses left, or ``0.0`` when this was the last attempt.
+    """
+    return sum(backoff_delay(later, base) for later in range(attempt, max_attempts))

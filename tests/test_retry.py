@@ -17,6 +17,7 @@ from core.retry import (
     DEFAULT_MAX_ATTEMPTS,
     backoff_delay,
     pause_before_retry,
+    remaining_backoff,
 )
 
 
@@ -76,3 +77,34 @@ async def test_the_whole_sequence_waits_once_less_than_it_tries(slept):
         await pause_before_retry(attempt)
 
     assert slept.await_count == DEFAULT_MAX_ATTEMPTS - 1
+
+
+# --------------------------------------------------------------------------- #
+# How much waiting is still on the table
+# --------------------------------------------------------------------------- #
+#
+# Asked when the other end says how long to wait: retrying a limit that lasts
+# eleven minutes only makes the refusal slower.  The value is a promise about
+# what the pauses add up to, so it is checked against them, not restated.
+
+
+def test_the_budget_is_what_the_remaining_pauses_add_up_to():
+    assert remaining_backoff(1, 3, 1.0) == backoff_delay(1, 1.0) + backoff_delay(2, 1.0)
+
+
+def test_the_budget_shrinks_as_the_attempts_are_spent():
+    assert remaining_backoff(1, 3, 1.0) > remaining_backoff(2, 3, 1.0)
+
+
+def test_the_last_attempt_has_nothing_left_to_wait():
+    """It matches ``pause_before_retry``, which also declines to sleep here."""
+    assert remaining_backoff(3, 3) == 0.0
+
+
+def test_a_single_attempt_has_no_budget_at_all():
+    assert remaining_backoff(1, 1) == 0.0
+
+
+def test_the_default_three_attempts_cover_three_seconds():
+    """The number the rate-limit decision is actually weighed against."""
+    assert remaining_backoff(1) == 3.0

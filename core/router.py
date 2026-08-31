@@ -26,7 +26,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
-from core.llm import LanguageModel, LLMUnavailableError, Message
+from core.llm import (
+    LanguageModel,
+    LLMQuotaExceededError,
+    LLMUnavailableError,
+    Message,
+)
 from core.memory import ConversationMemory, StoredMessage
 
 logger = logging.getLogger(__name__)
@@ -34,6 +39,26 @@ logger = logging.getLogger(__name__)
 #: Shown to the user when the model cannot be reached.  In Italian, because it
 #: is the only string in the code base the user actually reads.
 FALLBACK_UNAVAILABLE = "Non riesco a contattare il cervello in questo momento, riprova tra poco."
+
+#: Shown when the model answered, but refused: a rate limit or a spent quota.
+#: Deliberately different from the message above, which invites a retry -- the
+#: one thing that will not work here.  On 31 August 2026 the daily token quota
+#: ran out and the user was told to try again shortly; they spent the evening
+#: guessing why the assistant had gone quiet, while the log said exactly why.
+FALLBACK_QUOTA = (
+    "Ho raggiunto il limite di richieste verso il modello. "
+    "Non e' un guasto: riprovare adesso non aiuta."
+)
+
+
+def _quota_message(retry_after: float | None) -> str:
+    """Say when it is worth coming back, when the server told us."""
+    if retry_after is None:
+        return f"{FALLBACK_QUOTA} Riprova piu' tardi."
+    if retry_after < 90:
+        return f"{FALLBACK_QUOTA} Riprova fra circa {round(retry_after)} secondi."
+    return f"{FALLBACK_QUOTA} Riprova fra circa {round(retry_after / 60)} minuti."
+
 
 #: Shown when the model answers without any prose -- rare, but possible when a
 #: turn ends on a tool block alone.
@@ -192,6 +217,14 @@ class Router:
 
         try:
             answer = await self._run_agentic_loop(messages)
+        except LLMQuotaExceededError as exc:
+            # Before LLMUnavailableError, which it inherits from.
+            logger.error(
+                "conversation=%s: giving up on this turn, quota exhausted (%s)",
+                request.conversation_id,
+                exc,
+            )
+            return AssistantResponse(text=_quota_message(exc.retry_after), degraded=True)
         except LLMUnavailableError:
             logger.error(
                 "conversation=%s: giving up on this turn, model unreachable",

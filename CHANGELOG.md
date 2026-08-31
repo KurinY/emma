@@ -26,6 +26,28 @@ change will always be listed here.
 
 ### Fixed
 
+- **A rate limit was treated as a permanent failure, and reported as an
+  outage.** On the evening of 31 August 2026 the Groq daily token quota ran
+  out. The log recorded exactly why — `on tokens per day (TPD): Limit 200000,
+  Used 199048 … Please try again in 11m24.288s` — and the user was told *"Non
+  riesco a contattare il cervello in questo momento, riprova tra poco"*: the
+  wrong diagnosis, and advice that could only fail. They spent the evening
+  guessing why the assistant had gone quiet.
+
+  Two faults met at that point. HTTP 429 is neither the transient 5xx that is
+  always worth retrying nor the permanent 4xx that never is, and it had been
+  filed with the latter — so a per-minute limit, which clears in seconds, was
+  never retried either. And the message written for an unreachable model was
+  reused for a model that had answered and refused.
+
+  A 429 now gets a branch of its own in both clients, placed before the general
+  status-error clause it inherits from. When the server says how long to wait,
+  that is weighed against what the remaining retries could actually absorb —
+  three seconds by default: a short wait is retried, a long one is refused at
+  once rather than made slower. `LLMQuotaExceededError` carries the wait up to
+  the router, which now says that the limit was reached, that it is not a
+  fault, and when to come back: *"Riprova fra circa 11 minuti."*
+
 - **A tool is consulted only when the model decides to consult it, and it
   decided wrong.** Asked which jobs were pending, EMMA reported one of two and
   described it with the reading the user had explicitly rejected; the logs said

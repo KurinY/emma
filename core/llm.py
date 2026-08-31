@@ -12,7 +12,9 @@ It exposes:
 * :class:`GroqLanguageModel` -- Groq implementation (OpenAI-compatible API)
   with the same retry policy;
 * :class:`LLMUnavailableError` -- raised once every attempt has failed, so the
-  caller can turn it into a polite message instead of a crash.
+  caller can turn it into a polite message instead of a crash;
+* :class:`LLMQuotaExceededError` -- the narrower case where the model answered
+  and refused, which needs different advice than an outage does.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from core.retry import (
     DEFAULT_BACKOFF_SECONDS,
     DEFAULT_MAX_ATTEMPTS,
     pause_before_retry,
+    remaining_backoff,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,12 +50,34 @@ DEFAULT_MAX_TOKENS = 2048
 DEFAULT_TIMEOUT_SECONDS = 60.0
 
 
+#: HTTP status for a rate limit.  Neither a server fault (5xx, always worth a
+#: retry) nor a permanent client fault (the rest of 4xx, never worth one), so
+#: it needs a branch of its own.
+HTTP_TOO_MANY_REQUESTS = 429
+
+
 class LLMError(RuntimeError):
     """Base class for every error raised by this module."""
 
 
 class LLMUnavailableError(LLMError):
     """The model could not be reached after exhausting all attempts."""
+
+
+class LLMQuotaExceededError(LLMUnavailableError):
+    """The model refused the call because a rate limit or quota is in force.
+
+    A subclass, so that every existing handler keeps working unchanged, but a
+    distinct type so the ones that care can say something truer than "I cannot
+    reach the model": the model was reached, and it said no. Telling a user to
+    retry when the daily quota is spent sends them to fail again.
+    """
+
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        #: Seconds the server asked us to wait, when it said.  ``None`` means
+        #: it did not, not that the wait is zero.
+        self.retry_after = retry_after
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +191,9 @@ class AnthropicLanguageModel:
     Retries are handled here and only here: the SDK's own retry loop is turned
     off (``max_retries=0``) so that the number of attempts is exactly the one
     configured on this object and stays visible in the logs.
+
+    Connection failures and 5xx are retried, the rest of 4xx is not, and 429
+    is decided case by case -- see :func:`_check_rate_limit`.
     """
 
     def __init__(
@@ -249,6 +277,20 @@ class AnthropicLanguageModel:
                 )
                 await pause_before_retry(attempt, self._max_attempts, self._backoff_seconds)
                 continue
+            except anthropic.RateLimitError as exc:
+                # Before APIStatusError, which it inherits from: a 429 is
+                # neither the transient 5xx nor the permanent 4xx below, and
+                # falling through to either one gets it wrong.
+                _check_rate_limit(
+                    exc,
+                    provider="Anthropic",
+                    attempt=attempt,
+                    max_attempts=self._max_attempts,
+                    base=self._backoff_seconds,
+                )
+                last_error = exc
+                await pause_before_retry(attempt, self._max_attempts, self._backoff_seconds)
+                continue
             except anthropic.APIStatusError as exc:
                 if exc.status_code >= 500:
                     # Server-side error: transient, retry.
@@ -297,9 +339,7 @@ class AnthropicLanguageModel:
             )
             return _to_response(raw)
 
-        raise LLMUnavailableError(
-            f"the Anthropic API did not answer after {self._max_attempts} attempts"
-        ) from last_error
+        raise _exhausted("Anthropic", self._max_attempts, last_error) from last_error
 
     async def aclose(self) -> None:
         """Release the underlying HTTP connection pool."""
@@ -311,7 +351,8 @@ class GroqLanguageModel:
 
     Uses the same retry policy as :class:`AnthropicLanguageModel`: transient
     errors (connection failures, 5xx) are retried with exponential backoff;
-    permanent errors (4xx) are surfaced immediately.
+    permanent errors (4xx) are surfaced immediately.  Rate limits (429) are
+    neither, and get a branch of their own -- see :func:`_check_rate_limit`.
 
     The system prompt is injected as the first message (role ``"system"``),
     which is the OpenAI convention Groq uses.
@@ -375,6 +416,20 @@ class GroqLanguageModel:
                 )
                 await pause_before_retry(attempt, self._max_attempts, self._backoff_seconds)
                 continue
+            except self._groq_sdk.RateLimitError as exc:
+                # Before APIStatusError, which it inherits from: a 429 is
+                # neither the transient 5xx nor the permanent 4xx below, and
+                # falling through to either one gets it wrong.
+                _check_rate_limit(
+                    exc,
+                    provider="Groq",
+                    attempt=attempt,
+                    max_attempts=self._max_attempts,
+                    base=self._backoff_seconds,
+                )
+                last_error = exc
+                await pause_before_retry(attempt, self._max_attempts, self._backoff_seconds)
+                continue
             except self._groq_sdk.APIStatusError as exc:
                 if exc.status_code >= 500:
                     last_error = exc
@@ -411,13 +466,105 @@ class GroqLanguageModel:
             )
             return response
 
-        raise LLMUnavailableError(
-            f"the Groq API did not answer after {self._max_attempts} attempts"
-        ) from last_error
+        raise _exhausted("Groq", self._max_attempts, last_error) from last_error
 
     async def aclose(self) -> None:
         """Release the underlying HTTP connection pool."""
         await self._client.close()
+
+
+def _retry_after_seconds(exc: object) -> float | None:
+    """Read the server's own advice on when to come back, if it gave any.
+
+    Args:
+        exc: An SDK status error, or anything at all -- callers pass whatever
+            they last caught, and a missing header is the normal case.
+
+    Returns:
+        The seconds requested, or ``None`` when the server did not say.
+    """
+    headers = getattr(getattr(exc, "response", None), "headers", None)
+    if headers is None:
+        return None
+    try:
+        return float(headers.get("retry-after"))
+    except (AttributeError, TypeError, ValueError):
+        # The header may also carry an HTTP date.  Rare from these providers,
+        # and not worth parsing: treating it as "no advice" costs one retry.
+        return None
+
+
+def _check_rate_limit(
+    exc: Exception,
+    *,
+    provider: str,
+    attempt: int,
+    max_attempts: int,
+    base: float,
+) -> None:
+    """Decide whether a rate limit is worth waiting out, and refuse it if not.
+
+    Which kind of failure a 429 is depends entirely on how long it lasts. A
+    per-minute cap clears in seconds and deserves the same retry as a network
+    blip. A daily quota does not clear today, and spending three attempts on it
+    only makes the refusal slower for someone who is already waiting.
+
+    The server usually tells us which it is; when it does not, we retry, on the
+    grounds that a wasted second costs less than a wrongly refused answer.
+
+    Args:
+        exc: The rate-limit error just caught.
+        provider: Name for the logs and the message.
+        attempt: The attempt that has just failed, counting from 1.
+        max_attempts: How many attempts there are in total.
+        base: The pause before the second attempt.
+
+    Raises:
+        LLMQuotaExceededError: When the wait asked for is longer than retrying
+            could possibly absorb.
+    """
+    retry_after = _retry_after_seconds(exc)
+    budget = remaining_backoff(attempt, max_attempts, base)
+    if retry_after is not None and retry_after > budget:
+        logger.error(
+            "%s rate limit is longer than retrying can absorb (attempt %d/%d): "
+            "asked to wait %.0fs, retries would cover %.0fs: %s",
+            provider,
+            attempt,
+            max_attempts,
+            retry_after,
+            budget,
+            exc,
+        )
+        raise LLMQuotaExceededError(
+            f"the {provider} API is rate limiting for another {retry_after:.0f}s",
+            retry_after=retry_after,
+        ) from exc
+    logger.warning(
+        "%s rate limited (attempt %d/%d), retrying: %s",
+        provider,
+        attempt,
+        max_attempts,
+        exc,
+    )
+
+
+def _exhausted(provider: str, attempts: int, last_error: Exception | None) -> LLMUnavailableError:
+    """Build the error for a call that ran out of attempts.
+
+    A rate limit that survived every retry is still a rate limit. Reporting it
+    as a plain outage would tell the user to try again, which is exactly what
+    just failed three times.
+    """
+    if (
+        isinstance(last_error, LLMQuotaExceededError)
+        or getattr(last_error, "status_code", None) == HTTP_TOO_MANY_REQUESTS
+    ):
+        return LLMQuotaExceededError(
+            f"the {provider} API was still rate limiting after {attempts} attempts",
+            retry_after=_retry_after_seconds(last_error),
+        )
+    return LLMUnavailableError(f"the {provider} API did not answer after {attempts} attempts")
 
 
 def _text_of(content: Any) -> str:
