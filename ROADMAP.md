@@ -81,12 +81,33 @@ Found during the production deploy:
 Goal: EMMA can look things up and take actions. Each tool is a Python class
 implementing the `Tool` protocol in `core/router.py`.
 
-- [ ] Decide and document the first tool set (candidates in `REVISIONE.md`)
-- [ ] Implement `tools/` package with at least one tool (e.g. web search or notes)
-- [ ] Register tools in `main.py` and verify the router's agentic loop handles them
-- [ ] Tests for each tool (offline mocks)
-- [ ] Update docs, CHANGELOG, ROADMAP
+The first tool set is the one that lets her ask for the others: EMMA
+commissions her own development, a developer picks the request up, and she
+comes back with the capability. Designed in `REVISIONE.md` entry 17.
+
+**Step A — EMMA's side**
+
+- [x] Decide and document the first tool set (`REVISIONE.md` entry 17)
+- [x] `core/tasks.py`: the queue, six stages, four checkpoints, heartbeat
+- [x] `tools/development.py`: `request_development`, `work_status`,
+      `answer_question`
+- [x] Register them in `main.py`; router untouched, as the protocol promised
+- [x] `prompts/system_prompt.txt`: the new tools, and the stale claim about
+      forgetting past conversations
+- [x] Tests: 39 new, 91 total, ruff clean
+- [x] Update docs (GUIDA 2.4, 3.3bis, 5.5, 5.6), CHANGELOG, ROADMAP
 - [ ] Backup + commit
+- [ ] Deploy and verify end to end from Telegram
+
+**Step B — the workshop side** (not repository code)
+
+- [ ] The script that waits on the queue without burning the session
+- [ ] A dedicated SSH key restricted to the queue, admin key kept for deploys
+
+**Later, once the loop is closed**
+
+- [ ] Tools that serve the user rather than the mechanism: notes, reminders,
+      web search
 
 ---
 

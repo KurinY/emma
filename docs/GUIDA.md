@@ -522,10 +522,14 @@ chiama tool-use, e ha la forma di un ciclo:
           └─ altrimenti → questa è la risposta finale
 ```
 
-Nella v1 la lista dei tool è **vuota**: il modello non può chiedere nulla, quindi
-il ciclo esce sempre al primo giro. Il codice però c'è tutto, ed è testato.
-Aggiungere una skill domani significa scrivere una classe con quattro attributi
-e passarla al router:
+Dalla v0.1 alla v0.2 la lista dei tool è rimasta **vuota**: il modello non poteva
+chiedere nulla e il ciclo usciva sempre al primo giro. Il codice però c'era
+tutto, ed era testato — proprio perché arrivasse questo momento senza doverlo
+riscrivere.
+
+Dalla **v0.3** i primi tre strumenti sono registrati (paragrafo 3.3bis), e
+`core/router.py` non è stato toccato di una riga. Aggiungerne un altro significa
+scrivere una classe con quattro attributi e passarla al router:
 
 ```python
 class Clock:
@@ -670,7 +674,10 @@ emma/
 ├── core/
 │   ├── router.py              orchestratore: contesto → modello → tool → risposta
 │   ├── llm.py                 client Anthropic/Groq, retry e backoff
-│   └── memory.py              interfaccia memoria + implementazioni RAM e SQLite
+│   ├── memory.py              interfaccia memoria + implementazioni RAM e SQLite
+│   └── tasks.py               coda dei lavori di sviluppo commissionati
+├── tools/
+│   └── development.py         i tre strumenti con cui EMMA commissiona sviluppo
 ├── prompts/
 │   └── system_prompt.txt      la personalità di EMMA
 ├── scripts/                   backup sul server (bash) e sul PC di sviluppo (PowerShell)
@@ -763,6 +770,41 @@ Tre scelte implementative comuni a entrambe:
 - **`prune` è idempotente**: chiamarlo due volte di fila non cambia niente.
   Serve perché venga invocato liberamente, senza doversi chiedere se è già stato
   fatto.
+
+## 3.3bis `core/tasks.py` e `tools/` — commissionare sviluppo
+
+EMMA non può modificare il proprio codice: è il processo in esecuzione. Può però
+**registrare che una modifica serve**, e riferirti come sta andando. È il
+meccanismo introdotto nella v0.3; il ragionamento completo, incluso quello che è
+stato deliberatamente escluso, è la voce 17 di `REVISIONE.md`.
+
+`core/tasks.py` è la coda. Un lavoro attraversa sei stadi — `new`,
+`understood`, `implemented`, `committed`, `pushed`, `deployed` — e a ogni
+passaggio si ferma in attesa di una tua risposta. Lo `stage` registra cosa è
+*fatto*; la nota ti chiede il permesso per il passo successivo.
+
+`tools/development.py` contiene i tre strumenti che EMMA può chiamare:
+
+| Strumento | Quando lo usa |
+| --- | --- |
+| `request_development` | registri una richiesta di modifica |
+| `work_status` | chiedi a che punto sono i lavori |
+| `answer_question` | rispondi a una domanda in sospeso |
+
+Due proprietà da conoscere, perché spiegano perché è fatto così:
+
+- **EMMA non parla mai per prima.** Nessuna riga di questo codice manda
+  notifiche. Le domande restano nella coda e le vedi quando chiedi tu; la tua
+  risposta torna per la stessa strada.
+- **La coda vive nello stesso file SQLite della memoria.** Non è pigrizia: il
+  controllo di integrità, gli snapshot e il backup consistente costruiti attorno
+  a quel file coprono così anche i lavori. Un secondo database sarebbe rimasto
+  scoperto, e in silenzio.
+
+La tabella `dev_heartbeat` registra quando una sessione di sviluppo ha guardato
+la coda l'ultima volta. Serve perché dietro non c'è un servizio che riparte da
+solo: se la sessione muore, i lavori si accumulano senza che nessuno protesti, e
+l'assenza di battito è l'unico modo per accorgersene. `work_status` te lo dice.
 
 ## 3.4 `core/llm.py` — il client del modello
 
@@ -1255,8 +1297,9 @@ finestra viene rimandata ogni volta.
 
 Sono limiti dichiarati, non difetti. Ognuno ha già la sua fase nella roadmap.
 
-- **Nessuno strumento.** Niente meteo, calendario, note, luci, ricerche. → v0.3,
-  skill.
+- **Quasi nessuno strumento.** Dalla v0.3 EMMA sa commissionare il proprio
+  sviluppo (paragrafo 5.6), ma non ha ancora meteo, calendario, note, luci o
+  ricerche. Quelli si chiedono, appunto, commissionandoli.
 - **Nessuna voce.** Solo testo, solo Telegram. → v0.4, satellite Raspberry.
 - **Solo testo in ingresso.** Foto, audio e documenti inviati al bot vengono
   ignorati senza risposta.
@@ -1265,9 +1308,63 @@ Sono limiti dichiarati, non difetti. Ognuno ha già la sua fase nella roadmap.
 - **Un solo utente.** Chiunque altro viene ignorato in silenzio, per progetto.
 - **Nessuna cancellazione della conversazione dal telefono.** Dalla v0.2 la
   memoria è persistente, quindi un riavvio non basta più: per ripartire da zero
-  cancella il file del database e riavvia il servizio (paragrafo 5.6).
+  cancella il file del database e riavvia il servizio (paragrafo 5.7).
 
-## 5.6 Azzerare la memoria
+## 5.6 Commissionare uno sviluppo
+
+Se EMMA non sa fare una cosa, puoi chiedere che impari a farla. Non la
+implementa lei — registra la richiesta, uno sviluppatore la prende in carico, e
+alla fine EMMA riparte con la capacità in più.
+
+**Per registrare una richiesta** ci sono due modi:
+
+```
+sviluppo: quando ti chiedo il meteo, dimmi che non hai internet
+```
+
+Con il prefisso `sviluppo:` la registra subito, senza discutere. Altrimenti
+puoi dirlo normalmente e sarà lei a proporlo:
+
+> **tu:** vorrei che ricordassi i miei appuntamenti
+> **EMMA:** Questa richiede una modifica al mio codice. La registro come lavoro?
+> **tu:** sì
+> **EMMA:** Registrata come lavoro #3.
+
+Non registra mai niente di sua iniziativa: o sei esplicito tu, o te lo chiede.
+
+**Per sapere a che punto sono:**
+
+> **tu:** a che punto sono i lavori?
+> **EMMA:** #3 [implementato e testato, in attesa di essere committato]
+> vorrei che ricordassi i miei appuntamenti — DOMANDA: 53 test verdi. Committo?
+> #4 [in attesa che lo sviluppatore lo prenda in carico] ...
+
+**Per rispondere a una domanda:**
+
+> **tu:** sì al 3, committa pure
+> **EMMA:** Risposta registrata sul lavoro #3.
+
+Ogni lavoro si ferma quattro volte in attesa di un tuo sì: prima di
+implementare, prima di committare, prima di pubblicare su GitHub e prima del
+deploy. È voluto — il momento in cui una richiesta capita male costa poco è
+prima che diventi codice pubblicato.
+
+> **EMMA non ti scrive mai per prima.** Le domande restano lì finché non chiedi
+> tu. Se non chiedi per un giorno, il lavoro si ferma al primo cancello e
+> aspetta: nulla si perde, ma nulla prosegue.
+
+**Se EMMA dice che la sessione di sviluppo non è attiva**, come qui:
+
+```
+NOTA: l'ultimo contatto con la sessione di sviluppo risale a 2 giorni fa.
+Probabilmente non e' attiva.
+```
+
+...significa esattamente quello: dietro non c'è un servizio che riparte da
+solo, ma una sessione che qualcuno ha lasciato aperta sul PC di sviluppo. Se è
+chiusa, le richieste si accumulano e nessuno le raccoglie. Riaprila.
+
+## 5.7 Azzerare la memoria
 
 La cronologia sta in un file SQLite, per default `/opt/emma/data/emma.db`,
 affiancato da due snapshot. Per ripartire da zero vanno via tutti e tre:
@@ -1864,7 +1961,7 @@ sudo -u emma git -C /opt/emma checkout main
 > cronologia delle conversazioni e non devono mai finire in un commit Git —
 > `.gitignore` esclude già l'intera directory `data/`. Per azzerare la memoria
 > vanno cancellati anche gli snapshot, altrimenti un recupero automatico
-> potrebbe farli tornare: vedi il paragrafo 5.6.
+> potrebbe farli tornare: vedi il paragrafo 5.7.
 
 # Appendice C — Dove guardare quando qualcosa non torna
 

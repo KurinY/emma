@@ -10,7 +10,43 @@ change will always be listed here.
 
 ## [Unreleased]
 
+### Added
+
+- **EMMA can commission her own development.** She cannot change her own code —
+  she is the process that is running — but she can record that a change is
+  wanted and report on it afterwards. `core/tasks.py` holds the queue;
+  `tools/development.py` gives her three tools over it: `request_development`,
+  `work_status` and `answer_question`. These are the first tools ever
+  registered on the agentic loop, and `core/router.py` did not change by a
+  line — which is what the `Tool` protocol was built for in 0.1.0.
+- A task passes through six stages (`new`, `understood`, `implemented`,
+  `committed`, `pushed`, `deployed`) and parks on the user at four of them: the
+  stage records what is done, the note asks permission for the step after it.
+- **EMMA never speaks first.** Nothing notifies anybody: the developer leaves a
+  question in the queue, the user sees it when they ask for the state of play,
+  and the answer travels back the same way. One voice, no second bot.
+- `dev_heartbeat` records when a development session last read the queue.
+  There is no service behind it — only a session someone left open — so a dead
+  session would otherwise pile up requests in silence; `work_status` reports
+  the gap instead.
+- The queue shares the database file with the conversation history, so the
+  integrity check, the snapshots and the consistent backup already built around
+  that file cover it too.
+- `tests/test_tasks.py` and `tests/test_tools_development.py`: 39 tests
+  covering the handover between user and developer, the full journey through
+  every checkpoint, the staleness warning, and the two stores sharing a file.
+- The design, and what was deliberately left out of it, is entry 17 of
+  `REVISIONE.md`.
+
 ### Changed
+
+- `prompts/system_prompt.txt`: describes the new tools and when to use them —
+  never on her own initiative, either the user is explicit or she asks first.
+  It also no longer claims she forgets past conversations, which stopped being
+  true in 0.2.0.
+- `CLAUDE.md` rule 8: report and ask between the stages of a piece of work
+  rather than chaining them. Full permissions on the machine waive the prompt
+  that nobody can click, not the asking itself.
 
 - **The backup now always happens.** `scripts/backup.sh` prefers the second
   disk and falls back to `/var/backups/emma` on the system disk when there is

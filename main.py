@@ -29,6 +29,8 @@ from config import Config, ConfigError, load_config
 from core.llm import AnthropicLanguageModel, GroqLanguageModel
 from core.memory import SqliteConversationMemory
 from core.router import Router
+from core.tasks import TaskStore
+from tools.development import development_tools
 
 logger = logging.getLogger("emma")
 
@@ -83,7 +85,16 @@ def create_app(config: Config) -> FastAPI:
         db_path=config.memory_db_path,
         max_messages=config.max_history_messages,
     )
-    router = Router(llm=llm, memory=memory, system_prompt=system_prompt, tools=())
+    # The task queue shares the database file with the history, so that the
+    # integrity check, the snapshots and the consistent backup already built
+    # around that file cover it too.  See REVISIONE.md, entry 17.
+    tasks = TaskStore(db_path=config.memory_db_path)
+    router = Router(
+        llm=llm,
+        memory=memory,
+        system_prompt=system_prompt,
+        tools=development_tools(tasks),
+    )
     telegram = TelegramAdapter(
         token=config.telegram_bot_token,
         allowed_user_id=config.telegram_allowed_user_id,
@@ -101,6 +112,9 @@ def create_app(config: Config) -> FastAPI:
             config.memory_db_path,
         )
         await memory.open()
+        # After the memory: it is the one that creates the directory and runs
+        # the integrity check on the shared file.
+        await tasks.open()
         await telegram.start()
         try:
             yield
@@ -108,6 +122,7 @@ def create_app(config: Config) -> FastAPI:
             logger.info("shutting down")
             await telegram.stop()
             await llm.aclose()
+            await tasks.close()
             await memory.close()
 
     app = FastAPI(
