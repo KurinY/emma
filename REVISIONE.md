@@ -1480,6 +1480,45 @@ insegue `LLMResponse` aprirebbe tre file invece di uno.
 **Verdetto: la deduplicazione conviene ed e' fatta. La divisione in tre moduli
 e' corretta ma non urgente — chiedimela quando non e' la sera di un rilascio.**
 
+## 21. Un turno alla volta, e nessuno lo scrive (proposta, 1 settembre 2026)
+
+`Router.handle()` legge la cronologia, poi passa **secondi** dentro il modello,
+poi scrive le due righe. Fra la lettura e la scrittura non tiene nessun lock.
+Due turni contemporanei sulla stessa conversazione intreccerebbero le scritture:
+nel migliore dei casi l'ordine dei messaggi salvati non e' quello reale, nel
+peggiore la finestra scorrevole taglia via la domanda e lascia la risposta.
+
+**Oggi non succede**, e l'ho verificato invece di sperarlo: l'adapter costruisce
+l'applicazione PTB con i valori di default, e in python-telegram-bot 22.8
+`max_concurrent_updates` vale **1**. Gli update sono serializzati, quindi esiste
+al piu' un turno alla volta. I due store (`SqliteConversationMemory` e
+`TaskStore`) hanno ciascuno il proprio `asyncio.Lock` e `append` tiene il lock
+su insert+prune, quindi la singola operazione e' gia' atomica: manca solo
+l'atomicita' del *turno*.
+
+Il problema e' che questa correttezza dipende da un valore di default di una
+libreria, che nessun file dichiarava. Ho aggiunto il commento in
+`core/router.py`; questa voce e' il seguito.
+
+**Cosa la romperebbe**, in ordine di probabilita':
+
+| | Cambiamento | Effetto |
+| --- | --- | --- |
+| 1 | Il **satellite vocale sul Raspberry** (gia' in roadmap) | secondo canale, secondo turno in parallelo: la rompe |
+| 2 | `concurrent_updates=True` per far rispondere il bot mentre lavora | la rompe |
+| 3 | Un secondo utente in whitelist | conversazioni diverse, quindi righe diverse: non la rompe |
+
+**La correzione**, quando servira': un `dict[str, asyncio.Lock]` per
+conversazione nel router, preso attorno all'intero turno. Non attorno alle sole
+scritture — sarebbe inutile, perche' il problema e' che la cronologia letta
+all'inizio e' gia' vecchia quando si scrive. Costo: una decina di righe, e la
+serializzazione per conversazione che gia' esiste di fatto diventa dichiarata.
+
+**Verdetto: non farlo ora** — sarebbe codice che protegge da una condizione che
+non puo' verificarsi, e non testabile senza fabbricare la concorrenza che non
+c'e'. **Farlo come primo passo del satellite vocale**, prima di aggiungere il
+secondo canale, non dopo.
+
 ## Riepilogo dei verdetti
 
 | # | Voce | Verdetto |
@@ -1504,6 +1543,7 @@ e' corretta ma non urgente — chiedimela quando non e' la sera di un rilascio.*
 | 16.4 | Snapshot periodici | fase futura, se la finestra di perdita risultasse troppo larga |
 | 17 | EMMA committente del proprio sviluppo | **da fare come v0.3**: tre tool, coda nel database, checkpoint 1/3/4/5 |
 | 18 | Memoria di fatti persistenti | fase futura |
+| 21 | Lock per conversazione nel router | non ora; **primo passo del satellite vocale**, prima del secondo canale |
 | 20 | Spezzare `core/llm.py` in tre moduli | **fatta la deduplicazione**; la divisione e' corretta ma non urgente |
 | 19 | Collegare qualcosa a `/health` | **implementata la C**: controllo dentro `backup.sh`, il 31 agosto 2026 |
 

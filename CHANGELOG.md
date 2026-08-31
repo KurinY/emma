@@ -98,6 +98,15 @@ change will always be listed here.
 
 ### Fixed
 
+- **"meno di un minuto fa" was said of eighty-nine seconds.** The first
+  threshold in the age shown beside each job was 90 seconds, so anything up to
+  a minute and a half was reported as under a minute. It is not a large error,
+  but this text reaches the user through a model that cannot check it, and a
+  job commissioned "meno di un minuto fa" reads as one EMMA has just seen. The
+  same rewrite fixes two latent plurals — "1 minuti fa", "1 ora"/"1 giorno" —
+  that the old thresholds happened to make unreachable.
+
+
 - **Stopping the Telegram adapter chained three steps**, so the first to raise
   skipped the two after it and left the HTTP session and PTB's task queue
   half-released on a process already on its way out. The same defect the

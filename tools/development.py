@@ -53,16 +53,28 @@ def _shorten(text: str, limit: int = 90) -> str:
 
 
 def _describe_age(seconds: float) -> str:
-    """Render an age in words a model can pass on without doing arithmetic."""
-    if seconds < 90:
+    """Render an age in words a model can pass on without doing arithmetic.
+
+    The thresholds are picked so the sentence is true rather than tidy. The
+    first one used to be 90 seconds, so anything up to a minute and a half was
+    reported as "meno di un minuto fa" -- which of 89 seconds is simply false,
+    and this text goes to the user through a model that cannot check it.
+    """
+    if seconds < 60:
         return "meno di un minuto fa"
+
     minutes = seconds / 60
     if minutes < 90:
-        return f"{round(minutes)} minuti fa"
+        whole = round(minutes)
+        return "1 minuto fa" if whole == 1 else f"{whole} minuti fa"
+
     hours = minutes / 60
     if hours < 36:
-        return f"{round(hours)} ore fa"
-    return f"{round(hours / 24)} giorni fa"
+        whole = round(hours)
+        return "1 ora fa" if whole == 1 else f"{whole} ore fa"
+
+    days = round(hours / 24)
+    return "1 giorno fa" if days == 1 else f"{days} giorni fa"
 
 
 class RequestDevelopment:

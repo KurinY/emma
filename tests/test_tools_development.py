@@ -20,6 +20,7 @@ from tools.development import (
     AnswerQuestion,
     RequestDevelopment,
     WorkStatus,
+    _describe_age,
     development_tools,
 )
 
@@ -423,3 +424,46 @@ async def test_the_tool_is_declared_to_the_model(store):
     assert abandon.name == "abandon_development"
     assert "number" in abandon.input_schema["required"]
     assert "confirm" in abandon.description.lower()
+
+
+# --------------------------------------------------------------------------- #
+# Saying how long ago something was
+# --------------------------------------------------------------------------- #
+#
+# This text reaches the user through a model that cannot check it, so it has to
+# be true on its own. The first threshold was 90 seconds, which meant 89
+# seconds was reported as "meno di un minuto fa".
+
+
+@pytest.mark.parametrize(
+    ("seconds", "expected"),
+    [
+        (0, "meno di un minuto fa"),
+        (59, "meno di un minuto fa"),
+        (60, "1 minuto fa"),
+        (89, "1 minuto fa"),  # was "meno di un minuto fa", which it is not
+        (90, "2 minuti fa"),
+        (600, "10 minuti fa"),
+        (5399, "90 minuti fa"),
+        (5400, "2 ore fa"),
+        (36000, "10 ore fa"),
+        (129599, "36 ore fa"),
+        (129600, "2 giorni fa"),
+        (864000, "10 giorni fa"),
+    ],
+)
+def test_an_age_is_rendered_the_way_a_person_would_say_it(seconds, expected):
+    assert _describe_age(seconds) == expected
+
+
+def test_the_singular_is_never_written_as_a_plural():
+    """A plural on the value one is what nobody notices until a user does."""
+    assert _describe_age(60) == "1 minuto fa"
+
+
+@pytest.mark.parametrize("seconds", [0, 1, 59, 60, 89, 90, 3600, 129600, 10**7])
+def test_no_age_is_ever_reported_as_less_than_a_minute_when_it_is_not(seconds):
+    """The property behind the fix, stated once rather than per boundary."""
+    said_under_a_minute = _describe_age(seconds) == "meno di un minuto fa"
+
+    assert said_under_a_minute == (seconds < 60)
