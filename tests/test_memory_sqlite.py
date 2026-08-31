@@ -498,3 +498,26 @@ async def test_a_failed_rotation_does_not_leave_a_stray_temporary(tmp_path, capl
 
     assert any("could not rotate the database snapshots" in r.message for r in caplog.records)
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+async def test_a_directory_it_cannot_create_names_the_likely_cause(tmp_path):
+    """The trap that shipped broken once, in v0.2.0.
+
+    `ProtectSystem=strict` without a matching `ReadWritePaths` makes the whole
+    filesystem read-only to the unit, and the bare OSError that follows names
+    a path and a permission and nothing about systemd. The service failed to
+    start and the reason was in a document nobody was reading. The message is
+    the only thing that turns that into a five-second fix, so it is asserted
+    rather than left to good intentions.
+    """
+    store = SqliteConversationMemory(db_path=tmp_path / "nope" / "emma.db", max_messages=10)
+
+    with (
+        patch.object(pathlib.Path, "mkdir", side_effect=OSError("read-only file system")),
+        pytest.raises(RuntimeError) as raised,
+    ):
+        await store.open()
+
+    message = str(raised.value)
+    assert "ReadWritePaths" in message
+    assert "emma.service" in message

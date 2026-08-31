@@ -5,6 +5,82 @@ for the next session. Newest entry at the top.
 
 ---
 
+## 2026-09-01 — Session 7
+
+**Status:** Completa in locale; **non ancora pushata ne' deployata**
+
+**Context:** Continuation di Session 6. Mandato aperto dell'utente: *"continuare
+a lavorare sulla versione corrente e apportare tutte le modifiche di
+miglioramento che ti vengono in mente."* Ho cercato difetti misurando, non
+immaginando: copertura, sonde sui casi limite, e ispezione di cio' che gira
+davvero sul server.
+
+**Difetti trovati e corretti:**
+- **`TelegramAdapter.stop()` concatenava tre passi**, quindi il primo che
+  sollevava saltava gli altri due e lasciava la sessione HTTP e la task queue
+  di PTB rilasciate a meta'. **Lo stesso difetto del lifespan**, un livello piu'
+  in basso, e piu' probabile li': su questo host una connessione su venti a
+  Telegram fallisce, e lo spegnimento e' proprio quando cade. Ne' `start()` ne'
+  `stop()` avevano un test: ora `adapters/telegram.py` e' al 100%.
+- **Il bot puo' diventare sordo senza morire.** Se il long polling si ferma
+  mentre il processo vive, nessuno la raggiunge piu' e `/health` rispondeva
+  `ok`. E' il sintomo che l'utente ha segnalato due volte il 31 agosto. Ora
+  `/health` riporta `telegram: listening|not polling` e va in `503` — e siccome
+  `backup.sh` lo interroga ogni notte, il guasto viene trovato da un job che
+  gira comunque.
+- **Lo stamp `VERSION` poteva mentire in silenzio.** Copiare un file con `scp` e
+  riavviare lascia lo stamp a dichiarare un commit che non e' piu' quello che
+  gira — **errore che ho commesso io due volte** il 31 agosto, un'ora dopo aver
+  scritto che lo stamp aveva reso la domanda rispondibile. All'avvio ora si
+  confronta l'installazione con l'ora del deploy e si segnala cosa e' cambiato.
+- **Ogni manifest di backup diceva `git commit: not a git repository`.** Vero e
+  inutile: un archivio ripristinato fra sei mesi non era legabile a una
+  versione. Ora, quando non c'e' un checkout, legge lo stamp `VERSION`.
+- **Un pacchetto di provider mancante produceva un traceback** invece della riga
+  che dice cosa fare. Ora `MissingDependencyError`, riportato come un `.env`
+  sbagliato: exit 2, nessuna traccia di stack.
+- **`_describe_age` diceva "meno di un minuto fa" di 89 secondi.** Testo che
+  leggi tu, passato da un modello che non puo' verificarlo. Corretta la soglia;
+  emersi cosi' tre singolari mai gestiti ("1 minuti fa").
+- **`.gitattributes` esteso a tutti i file di testo.** Il working copy era meta'
+  CRLF e meta' LF, il che fa fallire in silenzio una modifica byte-esatta su un
+  file e riuscire sull'altro: mi e' costato una diagnosi sbagliata stanotte.
+  `git add --renormalize` non ha mosso un solo contenuto.
+
+**Verificato sul server, non supposto:**
+- Il timer del backup gira (ultimo esito `0`), gli archivi esistono in
+  `/var/backups/emma` a `0600`, e **il fallback sul disco primario funziona**
+  (`/mnt/backup/emma` non esiste). Disco al 27%.
+- Un archivio reale si apre, contiene lo snapshot del DB e `.env`, ed esclude
+  `.venv`, le cache e `data/`.
+
+**Non fatto, deliberatamente:** dividere `core/llm.py` in tre moduli
+(`REVISIONE.md` voce 20). La regola 2 di `CLAUDE.md` dice di non implementare
+una voce di `REVISIONE.md` se non richiesta per nome.
+
+**Aggiunta `REVISIONE.md` voce 21:** il router non tiene alcun lock fra la
+lettura della cronologia e la scrittura; e' sicuro solo perche' PTB e' a
+`max_concurrent_updates=1`. Verificato, non supposto. Il lock per conversazione
+va fatto come primo passo del satellite vocale, prima del secondo canale.
+
+**Numeri:** 355 test (erano 324 a inizio sessione), copertura 98%,
+`adapters/telegram.py` e `config.py` al 100%, ruff pulito.
+
+**Commit:**
+- `3cc4101` make list-all list all of it
+- `166fb98` close the session log: deploy, the two commissioned jobs, and two mistakes
+- `2ebdc6e` stop the telegram adapter one step at a time, and test that it does
+- `16a0d8a` answer a broken install with a sentence, not a stack trace
+- `8a72c00` say a true thing about how long ago something was
+- `0cc50e8` notice a bot that has gone deaf
+- `504bdff` make the version stamp admit when it has gone stale
+- `cc4b982` record in every backup which code it holds
+- `43e56fe` store and check out every text file as LF
+- `ff8cbc5` test the Anthropic dialect, which never had a test of its own
+- `9a5bfd6` cover the two configuration mistakes nobody had tried
+
+---
+
 ## 2026-08-31 — Session 6
 
 **Status:** Complete (in attesa di decisione su push e deploy)
