@@ -133,6 +133,23 @@ comes back with the capability. Designed in `REVISIONE.md` entry 17.
 - [x] The loop ran end to end for real: commissioned from Telegram, read from
       the queue with the restricted key, answered with checkpoint 1
 
+**Step E — memory and tools, found damaging each other in production**
+
+- [x] Fix: the queue listing led with the original request, so a model told to
+      be brief kept the ambiguous half and dropped the clarification
+- [x] Diagnosis: the tool was not being called at all (`tools=0`) — a stored
+      answer was repeated word for word instead. Any tool reporting mutable
+      state has this problem, not just this one
+- [x] `ContextProvider` in `core/router.py`: state put in front of the model
+      every turn rather than fetched when it remembers to. Provider-independent
+      by design — plain text, no `tool_choice` to translate between dialects
+- [x] `DevelopmentContext`, wired in `main.py`; router still knows nothing
+      about tasks
+- [x] Measured: 6/10 as found, 8/10 with the provider, 9/10 with a clean
+      history, 10/10 with both, 5/5 on the deployed code
+- [x] Poisoned history cleared, database backed up first so it stays reversible
+- [x] Tests: 13 new, 132 total; docs, `REVISIONE.md` 17.10, deployed and pushed
+
 **Commissioned, waiting on the user**
 
 - [ ] #1 — EMMA reports which version of herself is running (a `VERSION` file
@@ -141,10 +158,21 @@ comes back with the capability. Designed in `REVISIONE.md` entry 17.
       fatal. Roughly 1 connection in 20 to Telegram fails from this IPv6-only
       host, and a failed send currently kills the turn in silence.
 
+**Open, not resolved**
+
+- [ ] A deploy on 31/08 at 13:34:58 cannot be traced to the command that made
+      it. The content was right and verified, but it reached production before
+      it was committed. Recorded rather than explained.
+- [ ] `/root/emma-pre-*` on the server: four safety copies from one day, worth
+      pruning once the work they protect is settled.
+
 **Later**
 
 - [ ] Tools that serve the user rather than the mechanism: notes, reminders,
       web search
+- [ ] Consider whether other mutable state deserves a `ContextProvider`. The
+      failure that produced it was not specific to development jobs, so any
+      future tool reporting something that changes inherits the same trap.
 
 ---
 

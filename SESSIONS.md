@@ -216,9 +216,66 @@ Due lezioni registrate in `docs/GUIDA.md` (nuovo caso in 6.7):
    codice attuale un invio fallito uccide il turno in silenzio, quindi ~1
    messaggio su 20 resterebbe senza risposta. Registrato come lavoro #2.
 
+**Done (continued) — il difetto più istruttivo della giornata:**
+
+L'utente ha chiesto a EMMA quali lavori fossero in sospeso. Ne ha riportato
+**uno su due**, descrivendolo con l'interpretazione che lui aveva esplicitamente
+scartato. Due cause distinte, trovate una alla volta:
+
+**Prima causa (corretta, ma non era quella giusta).** Il tool metteva la
+richiesta originale *prima* della domanda chiarificatrice. Un modello a cui il
+prompt ordina di essere conciso comprime, e comprimendo tiene l'inizio — quindi
+teneva le parole ambigue dell'utente e buttava il chiarimento. Corretto:
+domanda per prima, richiesta accorciata dopo, più un'istruzione esplicita a non
+riassumere. Commit `f0ad40a`.
+
+**Seconda causa, quella vera.** Nei log: `tools=0`. **Il tool non veniva
+chiamato affatto.** EMMA ripeteva parola per parola una risposta sbagliata data
+un quarto d'ora prima e finita nella memoria persistente.
+
+È l'interazione fra due cose che, singolarmente, funzionavano: **la memoria
+(v0.2) e i tool (v0.3) si danneggiano a vicenda.** Una risposta ricavata da un
+tool, una volta salvata, è indistinguibile da un fatto, e alla domanda
+successiva viene riusata invece di rifare la domanda. Non è specifico dei
+lavori: vale per qualunque strumento che riporti uno stato mutevole. **I test
+non potevano vederlo, perché provano i pezzi separatamente.**
+
+**Misurato**, dieci tentativi per configurazione, stessa domanda:
+
+| Configurazione | Corrette |
+| --- | --- |
+| avvelenata, nessun contesto | 6/10 |
+| avvelenata + contesto | 8/10 |
+| pulita, nessun contesto | 9/10 |
+| pulita + contesto | **10/10** |
+| in produzione dopo il deploy | 5/5 |
+
+**La soluzione, su richiesta esplicita dell'utente di non dipendere dal
+modello** (*"dobbiamo pensare che l'ia possa essere diversa alla base"*):
+`ContextProvider` in `core/router.py`. Un protocollo con un metodo asincrono,
+interrogato **una volta per turno** (non a ogni giro di tool: lo stato non
+cambia a metà turno), il cui risultato è accodato al prompt di sistema.
+`DevelopmentContext` produce la riga con conteggi e numeri, e dichiara quale
+fonte vince quando la memoria dissente.
+
+Non resta nessuna decisione da sbagliare: la riga c'è comunque. Ed è testo
+semplice, quindi non c'è `tool_choice` da tradurre fra i due dialetti —
+cambiando provider il comportamento non degrada in silenzio. `core/` continua
+a non sapere cosa sia un task. Un fornitore che esplode viene loggato e saltato.
+
+Scartate: forzare `tool_choice` (richiederebbe di riconoscere "questa è una
+domanda di stato" senza un modello: confronto di parole chiave, fragile e
+legato alla lingua) e non salvare in memoria le risposte da tool (toglie il
+veleno ma anche la continuità). Ragionamento completo in `REVISIONE.md` 17.10.
+
+13 test nuovi (132 totali), commit `6c07059`, deployato e verificato.
+
+**Cronologia ripulita** con copia di sicurezza completa in
+`/root/emma-pre-ctx-20260831-140320` (20 messaggi, 2 lavori): la cancellazione
+resta annullabile. Rimossi anche i due snapshot, che contenevano la stessa
+cronologia e l'avrebbero riportata indietro a un eventuale recupero.
+
 **Pending:**
-Passo C deployato, pushato e verificato in produzione; `uv.lock` messo in
-`.gitignore`. Restano aperti solo i due lavori in coda:
 
 - [ ] **Lavoro #1** — EMMA sa dire quale versione di sé sta girando. Al
       checkpoint 1, attende il consenso dell'utente sul piano (file `VERSION`
@@ -226,7 +283,16 @@ Passo C deployato, pushato e verificato in produzione; `uv.lock` messo in
       serve perché sul server non c'è un checkout git da cui leggere il commit).
 - [ ] **Lavoro #2** — reinvio su `TimedOut` in `adapters/telegram.py`, e
       indicatore "sta scrivendo" non fatale visto che è cosmetico. Motivato
-      dall'incidente e dal 5% di connessioni fallite misurato.
+      dall'incidente e dal 5% di connessioni verso Telegram misurato fallire.
+- [ ] **Tracciabilità:** alle 13:34:58 `tools/development.py` e
+      `prompts/system_prompt.txt` sono finiti in produzione (contenuto corretto,
+      impronte verificate) **senza che io sappia indicare il comando che l'ha
+      fatto**. Sequenza al contrario: prima in produzione, poi committato.
+      Registrato perché non sparisca, non perché sia stato risolto.
+- [ ] **Copie di sicurezza sul server** da potare: `/root/emma-pre-*` sono
+      quattro, tutte di oggi.
+- [ ] **EMMA ha perso il contesto conversazionale** (cronologia a zero). Voluto,
+      ma vale la pena saperlo: a un "e allora?" non sa più a cosa ci si riferiva.
 
 ---
 
