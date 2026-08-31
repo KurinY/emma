@@ -101,6 +101,31 @@ change will always be listed here.
 
 ### Fixed
 
+- **`GroqLanguageModel` accepted a `tools` argument and ignored it**, so on the
+  provider actually used in production the model was never even offered the
+  tools it was supposed to call. The client dates from 0.1.x, when the tool
+  list was empty and the omission cost nothing; 0.3.0 registered three tools
+  and they were inert. Nothing failed and nothing was logged — EMMA simply
+  answered in prose, which is indistinguishable from working unless you go
+  looking for the tool call that never happened.
+- The two dialects are now translated in both directions inside the adapter,
+  where the difference belongs: declarations move from `input_schema` to a
+  nested `function.parameters`; a request to run a tool moves between a
+  `tool_use` content block and a `tool_calls` field whose arguments are a JSON
+  string; a result moves between a `tool_result` block and a message of its own
+  with `role: "tool"`. `core/router.py` still speaks one dialect and did not
+  change.
+- Replaying an agentic turn used to flatten tool traffic to prose, which left
+  the model unable to see that it had ever called anything — so the second
+  round of a tool turn started from nothing. It is now replayed intact.
+- Malformed JSON in a tool call's arguments no longer drops the call, which
+  would have looked like the model saying nothing at all; it runs with empty
+  arguments and the tool reports the problem itself.
+- `tests/test_llm_groq_tools.py`: 24 tests over the three translation
+  functions, including a full round trip back out. Verified against the live
+  API as well: the explicit prefix registers a task, a missing capability is
+  proposed rather than registered, and a status question is answered from the
+  database.
 - **`systemd/emma.service` could not write the database at all.** The unit sets
   `ProtectSystem=strict`, which mounts the whole filesystem read-only, and
   declared no `ReadWritePaths`. On a clean install following the guide, 0.2.0

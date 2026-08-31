@@ -108,8 +108,22 @@ comes back with the capability. Designed in `REVISIONE.md` entry 17.
 - [x] Docs: GUIDA 4.9 (key setup, allowed verbs, verification)
 - [x] Verified: 18 checks including refused shell injection, refused SQL
       injection, and a Python-to-shell-to-Python round trip
-- [ ] Generate the dedicated key and install it on the server (needs a deploy)
-- [ ] Run the loop end to end once
+- [x] Generate the dedicated key and install it on the server; `whoami` and
+      `cat .env` both refused, `touch` and `list` work
+- [x] Deploy step A and B to the VPS, service healthy, 12 messages preserved
+
+**Step C — found after deploying, and the reason v0.3 could not have worked**
+
+- [x] Fix: `GroqLanguageModel` ignored the `tools` argument entirely, so the
+      model was never offered them on the provider used in production
+- [x] Translate declarations, calls and results between the two dialects, in
+      the adapter; router untouched
+- [x] Keep tool traffic intact when replaying an agentic turn
+- [x] Tests: 24 new, 115 total, ruff clean
+- [x] Verified against the live API: prefix registers, missing capability is
+      proposed not registered, status answered from the database
+- [ ] Deploy step C (production still runs the version without tool support)
+- [ ] Push, once it has been seen working in production
 
 **Later, once the loop is closed**
 

@@ -18,6 +18,7 @@ It exposes:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
@@ -320,6 +321,12 @@ class GroqLanguageModel:
 
     The system prompt is injected as the first message (role ``"system"``),
     which is the OpenAI convention Groq uses.
+
+    Tool use is supported and translated in both directions by
+    :func:`_to_groq_tools`, :func:`_to_groq_messages` and
+    :func:`_from_groq_message`.  The router only ever speaks the Anthropic
+    dialect; keeping the dialects apart is this class's job, and the reason the
+    router did not have to change when Groq was added.
     """
 
     def __init__(
@@ -351,24 +358,18 @@ class GroqLanguageModel:
         tools: list[dict[str, Any]] | None = None,
     ) -> LLMResponse:
         """Call the Groq chat completions API, retrying transient failures."""
-        groq_messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
-        for m in messages:
-            content = m["content"]
-            groq_messages.append(
-                {
-                    "role": m["role"],
-                    "content": content if isinstance(content, str) else _flatten_content(content),
-                }
-            )
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": _to_groq_messages(system, messages),
+            "max_tokens": self._max_tokens,
+        }
+        if tools:
+            payload["tools"] = _to_groq_tools(tools)
 
         last_error: Exception | None = None
         for attempt in range(1, self._max_attempts + 1):
             try:
-                raw = await self._client.chat.completions.create(
-                    model=self._model,
-                    messages=groq_messages,
-                    max_tokens=self._max_tokens,
-                )
+                raw = await self._client.chat.completions.create(**payload)
             except self._groq_sdk.APIConnectionError as exc:
                 last_error = exc
                 logger.warning(
@@ -407,16 +408,16 @@ class GroqLanguageModel:
                 ) from exc
 
             choice = raw.choices[0]
-            text = choice.message.content or ""
-            stop_reason = choice.finish_reason
+            response = _from_groq_message(choice.message, choice.finish_reason)
             logger.info(
-                "groq call ok (attempt %d): stop_reason=%s in=%d out=%d",
+                "groq call ok (attempt %d): stop_reason=%s in=%d out=%d tools=%d",
                 attempt,
-                stop_reason,
+                response.stop_reason,
                 raw.usage.prompt_tokens,
                 raw.usage.completion_tokens,
+                len(response.tool_uses),
             )
-            return LLMResponse(blocks=(TextBlock(text=text),), stop_reason=stop_reason)
+            return response
 
         raise LLMUnavailableError(
             f"the Groq API did not answer after {self._max_attempts} attempts"
@@ -427,13 +428,8 @@ class GroqLanguageModel:
         await self._client.close()
 
 
-def _flatten_content(content: Any) -> str:
-    """Convert Anthropic-style content blocks to a plain string.
-
-    Used when replaying assistant messages to a non-Anthropic backend that
-    expects plain-text content.  Only ``text`` blocks are included; tool
-    blocks are dropped because Groq handles tools differently.
-    """
+def _text_of(content: Any) -> str:
+    """Return the prose of Anthropic-style content, ignoring non-text blocks."""
     if isinstance(content, list):
         return "\n\n".join(
             block["text"]
@@ -441,6 +437,161 @@ def _flatten_content(content: Any) -> str:
             if isinstance(block, dict) and block.get("type") == "text"
         )
     return str(content)
+
+
+def _to_groq_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Translate tool declarations from the router's shape into Groq's.
+
+    The router speaks the Anthropic dialect -- ``name``, ``description``,
+    ``input_schema`` at the top level -- because that is the protocol its
+    agentic loop was written against.  The OpenAI-compatible APIs nest the same
+    information under ``function`` and call the schema ``parameters``.
+
+    Doing the translation here is the point of the adapter: the router keeps one
+    vocabulary and every backend meets it where it is.
+
+    Args:
+        tools: Declarations as :meth:`core.router.Router._tool_schemas` builds
+            them.
+
+    Returns:
+        The same declarations in the shape Groq expects.
+    """
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": tool["name"],
+                "description": tool["description"],
+                "parameters": tool.get("input_schema") or {"type": "object", "properties": {}},
+            },
+        }
+        for tool in tools
+    ]
+
+
+def _to_groq_messages(system: str, messages: list[Message]) -> list[dict[str, Any]]:
+    """Translate the conversation from the router's shape into Groq's.
+
+    The two protocols disagree about where tool traffic lives, and an agentic
+    turn cannot be replayed without honouring the difference:
+
+    * a request to run a tool is a ``tool_use`` **content block** for Anthropic,
+      and a ``tool_calls`` **field on the assistant message** for Groq, with the
+      arguments as a JSON *string* rather than an object;
+    * a result is a ``tool_result`` block inside a user message for Anthropic,
+      and a message of its own with ``role: "tool"`` for Groq, one per call.
+
+    Flattening any of that to prose -- which is what this adapter used to do --
+    leaves the model unable to see that it ever called anything, so the second
+    round of a tool turn starts from nothing.
+
+    Args:
+        system: The system prompt.
+        messages: History in the router's Anthropic-shaped wire format.
+
+    Returns:
+        Messages ready for the chat completions API.
+    """
+    out: list[dict[str, Any]] = [{"role": "system", "content": system}]
+
+    for message in messages:
+        role = message["role"]
+        content = message["content"]
+
+        if isinstance(content, str):
+            out.append({"role": role, "content": content})
+            continue
+
+        blocks = [b for b in content if isinstance(b, dict)]
+
+        if role == "assistant":
+            text = _text_of(blocks)
+            calls = [
+                {
+                    "id": b["id"],
+                    "type": "function",
+                    # Groq wants the arguments as a JSON string, not an object.
+                    "function": {
+                        "name": b["name"],
+                        "arguments": json.dumps(b.get("input") or {}, ensure_ascii=False),
+                    },
+                }
+                for b in blocks
+                if b.get("type") == "tool_use"
+            ]
+            reply: dict[str, Any] = {"role": "assistant"}
+            # A turn that is only tool calls carries no prose, and the API wants
+            # the content explicitly null rather than an empty string.
+            reply["content"] = text or None
+            if calls:
+                reply["tool_calls"] = calls
+            out.append(reply)
+            continue
+
+        # A user message may carry tool results, ordinary text, or both. The
+        # results have to become separate messages, and they must directly
+        # follow the assistant turn that asked for them.
+        prose: list[str] = []
+        for block in blocks:
+            kind = block.get("type")
+            if kind == "tool_result":
+                out.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": block["tool_use_id"],
+                        "content": str(block.get("content", "")),
+                    }
+                )
+            elif kind == "text":
+                prose.append(block["text"])
+        if prose:
+            out.append({"role": "user", "content": "\n\n".join(prose)})
+
+    return out
+
+
+def _from_groq_message(message: Any, finish_reason: str | None) -> LLMResponse:
+    """Convert a Groq reply into the blocks the router understands.
+
+    Args:
+        message: ``raw.choices[0].message`` from the SDK.
+        finish_reason: ``raw.choices[0].finish_reason``.
+
+    Returns:
+        The reply in this module's own vocabulary, with ``stop_reason`` mapped
+        to ``"tool_use"`` when tools were requested -- which is the value the
+        router's loop looks for.
+    """
+    blocks: list[ContentBlock] = []
+
+    text = getattr(message, "content", None)
+    if text:
+        blocks.append(TextBlock(text=text))
+
+    for call in getattr(message, "tool_calls", None) or ():
+        raw_arguments = call.function.arguments or "{}"
+        try:
+            arguments = json.loads(raw_arguments)
+        except (TypeError, ValueError):
+            # A model that emits malformed JSON has still asked for the tool.
+            # Running it with no arguments and letting it complain beats
+            # dropping the call, which would look like the model said nothing.
+            logger.warning(
+                "tool call '%s' carried arguments that are not JSON: %r",
+                call.function.name,
+                raw_arguments,
+            )
+            arguments = {}
+        if not isinstance(arguments, dict):
+            arguments = {}
+        blocks.append(ToolUseBlock(id=call.id, name=call.function.name, input=arguments))
+
+    if not blocks:
+        blocks.append(TextBlock(text=""))
+
+    stop_reason = "tool_use" if finish_reason == "tool_calls" else finish_reason
+    return LLMResponse(blocks=tuple(blocks), stop_reason=stop_reason)
 
 
 def _to_response(raw: anthropic.types.Message) -> LLMResponse:

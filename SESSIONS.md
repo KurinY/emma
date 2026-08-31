@@ -146,7 +146,52 @@ manifest dichiara destinazione e motivo, la cronologia è recuperabile
 **Confermato dall'utente:** EMMA risponde su Telegram dopo il passaggio alla
 unit blindata (il database è passato da 8 a 12 messaggi durante la sessione).
 
-**Pending:** nessuno.
+**Done (continued) — v0.3: EMMA commissiona il proprio sviluppo:**
+
+Progettato in conversazione e scritto in `REVISIONE.md` voce 17 prima di
+toccare codice. Vincoli dell'utente: un solo bot, nessuna spesa in più, EMMA
+non parla mai per prima, consenso a ogni passaggio, e **nessuna API key** — il
+lato sviluppo è una sessione di Claude Code aperta sul PC, non un servizio.
+
+- `core/tasks.py` + `tools/development.py`: coda a sei stadi e tre tool
+  (`request_development`, `work_status`, `answer_question`). **Primi tool mai
+  registrati sul router, e `core/router.py` non è cambiato di una riga** — il
+  protocollo scritto nella v0.1 contro una lista vuota ha retto.
+- `scripts/task-queue.sh`: l'unica cosa che la chiave dedicata può eseguire,
+  vincolata con `command=` in `authorized_keys`. Sette verbi, mai SQL.
+- `scripts/watch-tasks.sh`: attende in shell, così la sessione si sveglia solo
+  quando c'è lavoro.
+- Deploy su VPS: chiave ristretta installata e verificata (`whoami` e
+  `cat .env` **rifiutati**), 12 messaggi preservati, 91 test verdi sul server.
+
+**Il bug che ha reso tutto inerte.** Dopo il deploy, ispezionando il codice:
+`GroqLanguageModel` accettava il parametro `tools` e **non lo usava mai**.
+Nato nella v0.1.x quando la lista era vuota, il difetto non costava nulla; con
+tre tool registrati significava che il modello non li vedeva nemmeno. Nessun
+errore, nessun log: EMMA rispondeva a parole, indistinguibile dal
+funzionamento corretto se non si va a cercare la chiamata che non c'è stata.
+
+Corretto traducendo i due dialetti in entrambe le direzioni **dentro
+l'adattatore**, dove la differenza deve stare: dichiarazioni, chiamate e
+risultati cambiano forma, il router continua a parlare una lingua sola. Il
+pezzo insidioso era il replay del turno agentico, che appiattiva il traffico
+dei tool a prosa — lasciando il modello incapace di vedere di aver chiamato
+qualcosa.
+
+Verificato contro l'API vera, in una directory isolata sul server senza
+toccare la produzione: prefisso `sviluppo:` registra, capacità mancante viene
+**proposta e non registrata**, domanda di stato risposta leggendo il database.
+
+115 test verdi, ruff pulito.
+
+**Pending:**
+- [ ] **Deploy del passo C**: la produzione gira ancora la versione senza
+      supporto ai tool, quindi i tre strumenti sono registrati ma inerti.
+      Non rompono nulla, semplicemente non partono.
+- [ ] **Push**, tenuto fermo di proposito finché il meccanismo non è stato
+      visto funzionare in produzione.
+- [ ] Decidere se mettere `uv.lock` in `.gitignore` (ridondante rispetto a
+      `requirements.txt`, che ha già le versioni fissate).
 
 ---
 
