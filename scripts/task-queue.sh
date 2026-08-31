@@ -27,7 +27,7 @@
 #
 # Usage (through SSH, which passes the request in SSH_ORIGINAL_COMMAND):
 #   ssh emma-queue list              # tasks waiting for the developer, as JSON
-#   ssh emma-queue list-all          # every open task
+#   ssh emma-queue list-all          # every task, closed ones included
 #   ssh emma-queue show 3
 #   ssh emma-queue touch             # record that the session is alive
 #   ssh emma-queue advance 3 implemented "53 test verdi. Committo?"
@@ -156,8 +156,12 @@ case "${VERB}" in
         ;;
 
     list-all)
-        query "SELECT ${TASK_COLUMNS} FROM tasks
-               WHERE status IN ('queued','waiting_user') ORDER BY id"
+        # Everything, closed jobs included -- which is what the name promises,
+        # and what it did not do. It filtered to open jobs, so the moment the
+        # queue was cleared it answered nothing at all, and the record of what
+        # had been asked and why it was decided that way became reachable only
+        # by guessing an id. That record is the only one there is.
+        query "SELECT ${TASK_COLUMNS} FROM tasks ORDER BY id"
         ;;
 
     show)

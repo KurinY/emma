@@ -1402,7 +1402,7 @@ raddoppiati.
 | Comando | Cosa fa |
 | --- | --- |
 | `list` | i lavori che aspettano lo sviluppatore, in JSON |
-| `list-all` | tutti i lavori aperti |
+| `list-all` | tutti i lavori, compresi quelli chiusi e abbandonati |
 | `show <n>` | un lavoro |
 | `touch` | registra che la sessione è viva |
 | `create "<descrizione>"` | apre un lavoro trovato lavorando al codice |
