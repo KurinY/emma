@@ -23,11 +23,12 @@ class RunningVersion:
 
     name = "running_version"
     description = (
-        "Dice quale versione del codice di EMMA e' effettivamente in esecuzione, "
-        "con il commit e la data di installazione. Usalo quando l'utente chiede "
-        "che versione sei, quale codice stai eseguendo, se il server e' "
-        "aggiornato o allineato al repository. Riporta il commit cosi' com'e': "
-        "e' l'unico dato che risponde davvero alla domanda."
+        "Report which version of EMMA's code is actually running, with the "
+        "commit and the date it was installed. Use it when the user asks what "
+        "version you are, which code you are running, or whether the server is "
+        "up to date with the repository. Report the commit exactly as given: it "
+        "is the only field that actually answers the question. Do not answer "
+        "from memory -- the version changes underneath you at every deploy."
     )
     input_schema: ClassVar[dict[str, Any]] = {"type": "object", "properties": {}}
 

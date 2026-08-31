@@ -9,15 +9,17 @@ Each class satisfies the ``Tool`` protocol in :mod:`core.router` structurally --
 name, description, schema, ``run`` -- so registering them touches no code in the
 router, which is what that protocol was built for.
 
-Two conventions worth knowing before editing:
+One convention worth knowing before editing, because the line is not where it
+first looks:
 
-* **Names are English, descriptions are Italian.**  The name is a code
-  identifier and follows the rest of the codebase; the description is prompt
-  text a model reads to decide whether to call the tool, and the conversation it
-  is deciding within is in Italian.
-* **What ``run`` returns is read by the model, not by the user.**  It is a
-  compact statement of fact, which EMMA then phrases herself.  Writing polished
-  Italian prose here would only get rewritten.
+* **What the model reads in order to decide is English** -- names, descriptions,
+  schema properties. None of it ever reaches the user, so it follows the rest
+  of the codebase.
+* **What ``run`` returns is Italian**, because the user does see it. In theory
+  EMMA rephrases these strings; in practice she quotes them verbatim, and a
+  listing written in English surfaced English in an Italian chat. The same
+  applies to :data:`_STAGE_LABELS` and to anything a provider puts in front of
+  the model, since that gets repeated too.
 """
 
 from __future__ import annotations
@@ -68,25 +70,24 @@ class RequestDevelopment:
 
     name = "request_development"
     description = (
-        "Registra una richiesta di modifica o miglioramento del codice di EMMA, "
-        "in modo che uno sviluppatore la prenda in carico. Usalo quando l'utente "
-        "chiede una capacita' che al momento non hai, oppure quando scrive un "
-        "messaggio che comincia con 'sviluppo:'. Conserva le parole dell'utente "
-        "cosi' come sono: non riassumere e non interpretare, chi legge ha il "
-        "codice davanti e tu no."
+        "Record a request to change or extend EMMA's own code, so that a "
+        "developer picks it up. Use it when the user asks for a capability you "
+        "do not have, or when their message begins with 'sviluppo:'. Keep the "
+        "user's own words: do not summarise and do not interpret, because "
+        "whoever reads the request has the code in front of them and you do not."
     )
     input_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
-            "richiesta": {
+            "request": {
                 "type": "string",
                 "description": (
-                    "La richiesta con le parole dell'utente, completa di ogni "
-                    "dettaglio utile a capirla senza il resto della conversazione."
+                    "The request in the user's own words, complete enough to be "
+                    "understood without the rest of the conversation."
                 ),
             }
         },
-        "required": ["richiesta"],
+        "required": ["request"],
     }
 
     def __init__(self, store: TaskStore) -> None:
@@ -95,9 +96,9 @@ class RequestDevelopment:
 
     async def run(self, arguments: dict[str, Any]) -> str:
         """Insert the request and report the number it was given."""
-        richiesta = str(arguments.get("richiesta", ""))
+        request = str(arguments.get("request", ""))
         try:
-            task_id = await self._store.create(richiesta)
+            task_id = await self._store.create(request)
         except ValueError:
             return "Richiesta vuota: non e' stato registrato nulla."
         return (
@@ -111,9 +112,10 @@ class WorkStatus:
 
     name = "work_status"
     description = (
-        "Elenca i lavori di sviluppo aperti e le domande che attendono una "
-        "risposta dell'utente. Usalo quando l'utente chiede a che punto sono i "
-        "lavori, se ci sono cose in sospeso, o cosa gli e' stato chiesto."
+        "List the open development jobs and any question waiting on the user. "
+        "Use it whenever the user asks how the work is going, whether anything "
+        "is pending, or what they have been asked. Do not answer from memory: "
+        "the state changes between one question and the next."
     )
     input_schema: ClassVar[dict[str, Any]] = {"type": "object", "properties": {}}
 
@@ -200,28 +202,28 @@ class AnswerQuestion:
 
     name = "answer_question"
     description = (
-        "Registra la risposta dell'utente a una domanda di un lavoro di "
-        "sviluppo, per esempio il consenso a procedere con un passaggio. Serve "
-        "il numero del lavoro, che trovi con work_status. Se l'utente risponde "
-        "senza dire quale lavoro intende e ce n'e' piu' di uno in attesa, "
-        "chiediglielo invece di indovinare."
+        "Record the user's answer to a question on a development job -- for "
+        "instance their consent to proceed with a step. It needs the job "
+        "number, which work_status gives you. If the user answers without "
+        "saying which job they mean and more than one is waiting, ask them "
+        "rather than guess."
     )
     input_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
-            "numero": {
+            "number": {
                 "type": "integer",
-                "description": "Il numero del lavoro a cui l'utente sta rispondendo.",
+                "description": "The number of the job the user is answering.",
             },
-            "risposta": {
+            "answer": {
                 "type": "string",
                 "description": (
-                    "La risposta dell'utente. Riportala fedelmente, comprese le "
-                    "condizioni o le correzioni che aggiunge."
+                    "The user's answer, reported faithfully, including any "
+                    "condition or correction they attach to it."
                 ),
             },
         },
-        "required": ["numero", "risposta"],
+        "required": ["number", "answer"],
     }
 
     def __init__(self, store: TaskStore) -> None:
@@ -231,12 +233,12 @@ class AnswerQuestion:
     async def run(self, arguments: dict[str, Any]) -> str:
         """Record the answer, or explain why it could not be recorded."""
         try:
-            task_id = int(arguments["numero"])
+            task_id = int(arguments["number"])
         except (KeyError, TypeError, ValueError):
             return "Numero del lavoro mancante o non valido: non ho registrato nulla."
 
-        risposta = str(arguments.get("risposta", ""))
-        recorded = await self._store.record_answer(task_id, risposta)
+        answer = str(arguments.get("answer", ""))
+        recorded = await self._store.record_answer(task_id, answer)
         if recorded:
             return f"Risposta registrata sul lavoro #{task_id}."
         return (

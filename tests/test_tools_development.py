@@ -56,7 +56,7 @@ async def test_every_schema_is_a_json_object(store):
 async def test_requesting_development_records_the_task(store):
     tool = RequestDevelopment(store)
 
-    result = await tool.run({"richiesta": "vorrei i promemoria"})
+    result = await tool.run({"request": "vorrei i promemoria"})
 
     (task,) = await store.open_tasks()
     assert task.request == "vorrei i promemoria"
@@ -66,7 +66,7 @@ async def test_requesting_development_records_the_task(store):
 async def test_an_empty_request_records_nothing(store):
     tool = RequestDevelopment(store)
 
-    result = await tool.run({"richiesta": "   "})
+    result = await tool.run({"request": "   "})
 
     assert await store.open_tasks() == []
     assert "vuota" in result.lower()
@@ -219,7 +219,7 @@ async def test_answering_records_the_reply(store):
     task_id = await store.create("un lavoro")
     await store.advance(task_id, "committed", "Pusho?")
 
-    result = await AnswerQuestion(store).run({"numero": task_id, "risposta": "si'"})
+    result = await AnswerQuestion(store).run({"number": task_id, "answer": "si'"})
 
     (task,) = await store.queued()
     assert task.answer == "si'"
@@ -231,26 +231,26 @@ async def test_answering_accepts_a_numeric_string(store):
     task_id = await store.create("un lavoro")
     await store.advance(task_id, "committed", "Pusho?")
 
-    await AnswerQuestion(store).run({"numero": str(task_id), "risposta": "si'"})
+    await AnswerQuestion(store).run({"number": str(task_id), "answer": "si'"})
 
     (task,) = await store.queued()
     assert task.answer == "si'"
 
 
 async def test_answering_an_unknown_task_says_so(store):
-    result = await AnswerQuestion(store).run({"numero": 9999, "risposta": "si'"})
+    result = await AnswerQuestion(store).run({"number": 9999, "answer": "si'"})
     assert "non esiste" in result
 
 
 async def test_answering_without_a_number_says_so(store):
-    result = await AnswerQuestion(store).run({"risposta": "si'"})
+    result = await AnswerQuestion(store).run({"answer": "si'"})
     assert "mancante" in result.lower()
 
 
 async def test_answering_a_task_with_no_question_pending(store):
     task_id = await store.create("un lavoro")
 
-    result = await AnswerQuestion(store).run({"numero": task_id, "risposta": "si'"})
+    result = await AnswerQuestion(store).run({"number": task_id, "answer": "si'"})
 
     assert "non ha una domanda" in result
 
@@ -264,7 +264,7 @@ async def test_a_whole_exchange_through_the_tools(store):
     """Commission, be asked something, answer, see it reflected."""
     request_tool, status_tool, answer_tool = development_tools(store)
 
-    await request_tool.run({"richiesta": "vorrei i promemoria"})
+    await request_tool.run({"request": "vorrei i promemoria"})
     (task,) = await store.open_tasks()
 
     # The developer reaches the first checkpoint.
@@ -274,7 +274,7 @@ async def test_a_whole_exchange_through_the_tools(store):
     status = await status_tool.run({})
     assert "Procedo?" in status
 
-    await answer_tool.run({"numero": task.id, "risposta": "si', procedi"})
+    await answer_tool.run({"number": task.id, "answer": "si', procedi"})
 
     (after,) = await store.queued()
     assert after.answer == "si', procedi"
