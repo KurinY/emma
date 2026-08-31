@@ -43,6 +43,21 @@ change will always be listed here.
 
 ### Changed
 
+- **EMMA is warmer when she is asked about herself.** Job #5 reported that she
+  answered *"Sono un assistente virtuale, non vivo come un essere umano"* and
+  asked why she did so "even with a connection". The investigation found no
+  fault: the exchange in the database is `sei vivo?` → that sentence, the turn
+  is logged `groq call ok`, and it was stored in memory — which degraded turns
+  never are. The personality prompt asked for exactly that: *"diretta, mai
+  servile, mai prolissa"*, and *"un 'non lo so' è una risposta utile"*.
+
+  So the change is to the prompt, not the code. Concision now applies to the
+  work, not to the person asking: a personal question gets an honest answer
+  with a sentence more than the minimum, and a bare "non lo so" has to say what
+  she does know or what she would need. Costs ~172 tokens a turn — about 5
+  exchanges a day against Groq's 200,000-token cap.
+
+
 - **Something finally reads `/health`.** `scripts/backup.sh` now asks the
   service whether it is well before writing the manifest. That job runs every
   night regardless, which makes it the cheapest place to notice, and it has a
