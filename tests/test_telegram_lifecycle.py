@@ -139,3 +139,35 @@ async def test_an_absent_updater_does_not_stop_the_shutdown(adapter):
     await adapter.stop()
 
     adapter._application.shutdown.assert_awaited_once()
+
+
+# --------------------------------------------------------------------------- #
+# Reporting whether it can still hear
+# --------------------------------------------------------------------------- #
+
+
+async def test_it_is_listening_once_polling_has_started(adapter):
+    await adapter.start()
+
+    assert adapter.is_listening
+
+
+async def test_it_is_not_listening_when_the_updater_stopped(adapter):
+    """The blind spot: the process lives, the bot has gone deaf."""
+    adapter._application.updater.running = False
+
+    assert not adapter.is_listening
+
+
+async def test_it_is_not_listening_without_an_updater(adapter):
+    adapter._application.updater = None
+
+    assert not adapter.is_listening
+
+
+async def test_it_is_not_listening_after_being_stopped(adapter):
+    """Between stop() and process exit, the honest answer is no."""
+    adapter._application.updater.running = False
+    await adapter.stop()
+
+    assert not adapter.is_listening

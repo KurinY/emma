@@ -43,6 +43,17 @@ change will always be listed here.
 
 ### Changed
 
+- **`/health` now notices a bot that has gone deaf.** The nastiest failure of
+  the lot, and it happened twice on 31 August: the process is alive, uvicorn
+  answers, the store is fine — but Telegram long polling has stopped, so
+  nothing reaches her. From the phone that is indistinguishable from a dead
+  bot, and the health check reported `ok` throughout. It now asks the adapter
+  whether updates are still arriving, and answers `503 degraded` when they are
+  not, however well everything else is doing: an assistant who cannot hear you
+  is not healthy. Since `scripts/backup.sh` polls `/health` nightly, this fault
+  is now caught by a job that runs anyway, rather than by the user.
+
+
 - **EMMA is warmer when she is asked about herself.** Job #5 reported that she
   answered *"Sono un assistente virtuale, non vivo come un essere umano"* and
   asked why she did so "even with a connection". The investigation found no

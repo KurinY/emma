@@ -51,6 +51,8 @@ def no_telegram():
         instance = adapter.return_value
         instance.start = AsyncMock()
         instance.stop = AsyncMock()
+        # Healthy by default; the tests that care set it themselves.
+        instance.is_listening = True
         yield instance
 
 
@@ -353,3 +355,54 @@ def test_a_working_configuration_reaches_the_server(tmp_path, monkeypatch, no_te
 
     assert main.main() == 0
     served.assert_called_once()
+
+
+# --------------------------------------------------------------------------- #
+# A bot that has gone deaf
+# --------------------------------------------------------------------------- #
+#
+# The process being alive says nothing about whether Telegram updates are still
+# arriving. Long polling can stop on its own -- PTB giving up after repeated
+# network failures on a host that loses one connection in twenty -- while
+# uvicorn, the store and the model client all carry on. The health check knew
+# nothing about it and answered "ok", which is the difference between a service
+# that reports its own fault and one where the user notices first. Twice on
+# 31 August 2026 the user noticed first.
+
+
+async def test_health_says_it_is_listening_when_it_is(tmp_path, no_telegram):
+    no_telegram.is_listening = True
+
+    body = get_health(create_app(build_config(tmp_path)))
+
+    assert body["telegram"] == "listening"
+    assert body["status"] == "ok"
+
+
+async def test_a_bot_that_stopped_polling_is_degraded(tmp_path, no_telegram):
+    """The blind spot: everything else healthy, nobody able to reach her."""
+    no_telegram.is_listening = False
+
+    body = get_health(create_app(build_config(tmp_path)), expect=503)
+
+    assert body["telegram"] == "not polling"
+    assert body["status"] == "degraded"
+
+
+async def test_a_bot_that_stopped_polling_is_logged(tmp_path, no_telegram, caplog):
+    no_telegram.is_listening = False
+
+    with caplog.at_level("ERROR"):
+        get_health(create_app(build_config(tmp_path)), expect=503)
+
+    assert any("long polling is not running" in r.message for r in caplog.records)
+
+
+async def test_a_working_store_does_not_excuse_a_deaf_bot(tmp_path, no_telegram):
+    """Both have to hold; neither alone is health."""
+    no_telegram.is_listening = False
+
+    body = get_health(create_app(build_config(tmp_path)), expect=503)
+
+    assert body["store"] == "ok"
+    assert body["status"] == "degraded"

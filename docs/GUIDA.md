@@ -649,11 +649,22 @@ curl -s http://127.0.0.1:8000/health | python3 -m json.tool
 
 | Campo | A cosa serve |
 | --- | --- |
-| `status` / `store` | `ok` oppure `degraded`, con il tipo di errore incontrato |
+| `status` | `ok` oppure `degraded`: vale `degraded` se anche uno solo dei due sotto non va |
+| `store` | il database risponde? con il tipo di errore, se no |
+| `telegram` | `listening` oppure `not polling` — vedi sotto, è il punto cieco più insidioso |
 | `version` / `commit` | quale codice sta girando davvero, non quale dovrebbe |
 | `turns` / `degraded_turns` | quanto spesso una risposta è stata di ripiego |
 | `last_degraded_reason` | quale dei quattro guasti, per nome |
 | `seconds_since_degraded` | da quanto: `null` significa mai da quando è partita |
+
+**Il bot può diventare sordo senza morire.** È il guasto più insidioso di
+tutti, e lo hai visto davvero il 31 agosto: il processo è vivo, uvicorn
+risponde, il database sta bene — ma il long polling di Telegram si è fermato,
+e nessuno può più parlarle. Dal telefono è indistinguibile da un bot spento.
+Fino alla 0.3.0 `/health` non ne sapeva niente e rispondeva `ok`. Ora il campo
+`telegram` dice se gli update stanno ancora arrivando, e se non arrivano
+l'intero stato diventa `degraded` con `503` — anche se tutto il resto è a
+posto, perché un'assistente che non ti sente non è sana.
 
 **Chi lo interroga.** Dalla 0.3.0 lo fa `scripts/backup.sh`, cioè il job che
 gira comunque ogni notte alle 03:30 — ed è il posto giusto anche per un'altra

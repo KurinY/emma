@@ -122,6 +122,20 @@ class TelegramAdapter:
 
         logger.info("telegram adapter stopped")
 
+    @property
+    def is_listening(self) -> bool:
+        """Whether the bot is actually still receiving updates.
+
+        The process being alive says nothing about this. Long polling can stop
+        -- PTB giving up after repeated network failures, the updater stopped
+        without the application being stopped -- and the process carries on
+        serving a health endpoint that knows nothing about it. From the phone
+        the result is a bot that has quietly gone deaf, which is what "emma non
+        mi sta piu' rispondendo" looked like twice on 31 August 2026.
+        """
+        updater = self._application.updater
+        return updater is not None and bool(updater.running)
+
     async def _on_text_message(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle one incoming text message.
 

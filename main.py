@@ -202,13 +202,22 @@ def create_app(config: Config) -> FastAPI:
             store = f"unavailable: {type(exc).__name__}"
             logger.warning("health probe could not read the conversation store: %s", exc)
 
-        healthy = store == "ok"
+        # The process being alive says nothing about whether the bot can still
+        # hear.  Long polling can stop on its own while everything else keeps
+        # running, and a health check that misses that reports "ok" about a bot
+        # that has gone deaf -- the exact symptom seen twice on 31 August.
+        listening = telegram.is_listening
+        if not listening:
+            logger.error("health probe: telegram long polling is not running")
+
+        healthy = store == "ok" and listening
         if not healthy:
             response.status_code = 503
 
         return {
             "status": "ok" if healthy else "degraded",
             "store": store,
+            "telegram": "listening" if listening else "not polling",
             "model": active_model,
             "provider": config.llm_provider,
             # The commit, not just the version: it is the only field that
