@@ -173,11 +173,24 @@ fi
 STAGING="$(mktemp -d)"
 trap 'rm -rf "${STAGING}"' EXIT
 
-GIT_COMMIT="not a git repository"
+# Which code this archive holds. Git first, when there is a checkout; on the
+# server there is not -- code arrives as an archive -- so the VERSION stamp
+# written by scripts/deploy.sh is the answer there. Without this the manifest
+# of every production backup read "not a git repository", which is true and
+# useless: an archive restored in six months could not be tied to a version,
+# and that is exactly what the stamp was introduced to make possible.
+GIT_COMMIT="unknown (no git checkout and no VERSION stamp)"
 if command -v git >/dev/null && git -C "${PROJECT_DIR}" rev-parse --git-dir >/dev/null 2>&1; then
     GIT_COMMIT="$(git -C "${PROJECT_DIR}" log -1 --pretty='%H %ci %s' 2>/dev/null || echo unknown)"
     if [[ -n "$(git -C "${PROJECT_DIR}" status --porcelain 2>/dev/null)" ]]; then
         GIT_COMMIT="${GIT_COMMIT} (working tree has uncommitted changes)"
+    fi
+elif [[ -r "${PROJECT_DIR}/VERSION" ]]; then
+    STAMP_COMMIT="$(sed -n 's/^commit=//p' "${PROJECT_DIR}/VERSION" | head -1)"
+    STAMP_VERSION="$(sed -n 's/^version=//p' "${PROJECT_DIR}/VERSION" | head -1)"
+    STAMP_BUILT="$(sed -n 's/^built=//p' "${PROJECT_DIR}/VERSION" | head -1)"
+    if [[ -n "${STAMP_COMMIT}" ]]; then
+        GIT_COMMIT="${STAMP_COMMIT} (v${STAMP_VERSION:-?}, deployed ${STAMP_BUILT:-?}; from the VERSION stamp, not a checkout)"
     fi
 fi
 

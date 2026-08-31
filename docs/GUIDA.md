@@ -674,8 +674,9 @@ suo per volerne sapere lo stato. L'esito finisce sia nel journal sia nel
 servizio stava bene nel momento in cui è stato preso:
 
 ```
+git commit:  3cc4101 (v0.3.0, deployed 2026-09-01T00:17:22+02:00; from the VERSION stamp, not a checkout)
 database:    emma.db (consistent snapshot, integrity verified)
-service:     ok - {"status":"ok","store":"ok","version":"0.3.0","turns":12,...}
+service:     ok - {"status":"ok","store":"ok","telegram":"listening",...}
 ```
 
 Un servizio spento o degradato **non fa fallire il backup**: un processo fermo

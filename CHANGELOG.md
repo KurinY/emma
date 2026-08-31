@@ -126,6 +126,15 @@ change will always be listed here.
 
 ### Fixed
 
+- **Every production backup manifest said `git commit: not a git repository`.**
+  True and useless. The server deliberately has no checkout — code arrives as
+  an archive — so the backup fell back to a phrase that tells a future reader
+  nothing, and an archive restored in six months could not be tied to a
+  version. The `VERSION` stamp on the server holds exactly that commit and the
+  backup was not looking at it. It now does, saying plainly that the answer
+  comes from the stamp rather than a checkout.
+
+
 - **"meno di un minuto fa" was said of eighty-nine seconds.** The first
   threshold in the age shown beside each job was 90 seconds, so anything up to
   a minute and a half was reported as under a minute. It is not a large error,
