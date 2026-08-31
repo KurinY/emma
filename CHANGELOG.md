@@ -26,6 +26,14 @@ change will always be listed here.
 
 ### Fixed
 
+- **An unforeseen fault produced silence.** The Telegram error handler logged
+  the traceback and kept the bot alive, but said nothing to the user. Since the
+  router now turns every *known* failure into an answer, reaching that handler
+  means a bug — which makes replying more important, not less. It now sends a
+  short apology, subject to the same whitelist as every other path: the error
+  handler is exactly where such a check gets forgotten, and whatever bug led
+  there may be the reason a stranger's update reached a handler at all.
+
 - **A failure of the conversation store took the whole turn down.** Neither
   the read at the start of a turn nor the two writes at the end were guarded,
   so a locked database — a long backup holds one — or a full disk produced no

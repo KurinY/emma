@@ -182,3 +182,89 @@ async def test_a_stranger_is_still_ignored_before_anything_is_sent():
 
     router.handle.assert_not_awaited()
     update.effective_message.reply_text.assert_not_awaited()
+
+
+# --------------------------------------------------------------------------- #
+# The last resort
+# --------------------------------------------------------------------------- #
+#
+# The router turns every failure it knows about into an answer, so an exception
+# reaching the error handler means a bug. That makes replying more important,
+# not less: the process survives either way, but the user gets silence, and
+# from a phone silence is indistinguishable from a dead bot.
+
+
+def build_error_context(exc: Exception | None = None) -> MagicMock:
+    context = MagicMock()
+    context.error = exc or RuntimeError("boom")
+    return context
+
+
+def build_error_update() -> MagicMock:
+    update = MagicMock()
+    update.effective_user.id = ALLOWED_USER
+    update.effective_chat.send_message = AsyncMock()
+    return update
+
+
+async def test_an_unexpected_fault_still_gets_an_answer():
+    adapter, _ = build_adapter()
+    update = build_error_update()
+
+    await adapter._on_error(update, build_error_context())
+
+    update.effective_chat.send_message.assert_awaited_once()
+
+
+async def test_the_apology_is_not_one_of_the_router_messages():
+    """It names a bug, not a busy model: the two need different words."""
+    from adapters.telegram import FALLBACK_INTERNAL
+
+    adapter, _ = build_adapter()
+    update = build_error_update()
+
+    await adapter._on_error(update, build_error_context())
+
+    assert update.effective_chat.send_message.await_args.args[0] == FALLBACK_INTERNAL
+
+
+async def test_the_whitelist_still_holds_on_the_error_path():
+    """The place a check is likeliest to be forgotten, and likeliest to matter.
+
+    Whatever bug sent us here may be the reason a stranger's update reached a
+    handler at all.
+    """
+    adapter, _ = build_adapter()
+    update = build_error_update()
+    update.effective_user.id = ALLOWED_USER + 1
+
+    await adapter._on_error(update, build_error_context())
+
+    update.effective_chat.send_message.assert_not_awaited()
+
+
+async def test_an_error_with_no_update_is_only_logged():
+    """PTB passes an update of None for faults outside a handler."""
+    adapter, _ = build_adapter()
+
+    await adapter._on_error(None, build_error_context())  # must not raise
+
+
+async def test_the_fault_is_logged_even_when_the_apology_lands(caplog):
+    """The reply is for the user; the traceback is the only thing we can debug."""
+    adapter, _ = build_adapter()
+    update = build_error_update()
+
+    with caplog.at_level("ERROR"):
+        await adapter._on_error(update, build_error_context())
+
+    assert any("unhandled error" in r.message for r in caplog.records)
+
+
+async def test_a_failure_to_apologise_is_survived():
+    """Telegram being down is exactly when this path runs; it must not raise."""
+    adapter, _ = build_adapter()
+    update = build_error_update()
+    update.effective_chat.send_message.side_effect = TimedOut()
+
+    await adapter._on_error(update, build_error_context())  # must not raise

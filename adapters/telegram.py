@@ -47,6 +47,14 @@ MAX_MESSAGE_LENGTH = 4000
 #: been given the same answer written out twice.
 DEFAULT_SEND_ATTEMPTS = DEFAULT_MAX_ATTEMPTS
 
+#: Last resort, for a fault nobody anticipated.  The router turns every failure
+#: it knows about into an answer, so reaching this message means a bug rather
+#: than a bad day on the network -- but the user is owed a reply either way, and
+#: silence is the one outcome that looks identical to a dead bot.
+FALLBACK_INTERNAL = (
+    "Ho avuto un problema interno e non sono riuscita a rispondere. L'errore e' stato registrato."
+)
+
 _T = TypeVar("_T")
 
 
@@ -202,14 +210,29 @@ class TelegramAdapter:
                 return False
         return False
 
-    async def _on_error(self, _update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Log any exception escaping a handler, keeping the bot alive.
+    async def _on_error(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Log any exception escaping a handler, and still answer if we can.
+
+        The router turns every failure it knows about into an answer, so an
+        exception arriving here is a bug rather than a bad day on the network.
+        That makes it more worth reporting, not less: the process survives
+        either way, but without this the user gets silence, which from a phone
+        looks exactly like a bot that has died.
 
         Args:
-            _update: The update being processed, if any.
+            update: The update being processed, if there was one.
             context: PTB context carrying the exception.
         """
         logger.error("unhandled error while processing an update", exc_info=context.error)
+
+        chat = getattr(update, "effective_chat", None)
+        user = getattr(update, "effective_user", None)
+        # The whitelist governs this path too. An error handler is exactly the
+        # place where a check gets forgotten, and the bug that put us here may
+        # be the reason a stranger's update reached a handler at all.
+        if chat is None or user is None or user.id != self._allowed_user_id:
+            return
+        await self._send(lambda: chat.send_message(FALLBACK_INTERNAL))
 
 
 def _split_message(text: str, limit: int = MAX_MESSAGE_LENGTH) -> list[str]:
