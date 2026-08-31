@@ -96,8 +96,8 @@ comes back with the capability. Designed in `REVISIONE.md` entry 17.
       forgetting past conversations
 - [x] Tests: 39 new, 91 total, ruff clean
 - [x] Update docs (GUIDA 2.4, 3.3bis, 5.5, 5.6), CHANGELOG, ROADMAP
-- [ ] Backup + commit
-- [ ] Deploy and verify end to end from Telegram
+- [x] Backup + commit
+- [x] Deploy and verify end to end from Telegram
 
 **Step B — the workshop side**
 
@@ -169,10 +169,8 @@ comes back with the capability. Designed in `REVISIONE.md` entry 17.
       made it. Not explained, but no longer possible: `scripts/deploy.sh` is
       now the one way to deploy, it refuses an uncommitted tree, and it leaves
       the commit stamped on the server.
-- [ ] Confirm closing job #1: the answer "sì, chiudi i lavori" was given on #2
-      and read as covering both. The queue keeps no timestamp for an answer, so
-      the order of events could not be checked.
-- [ ] `/root/emma-pre-*` on the server: four safety copies from one day, worth
+- [x] Closing job #1 confirmed by the user: the plural answer did cover both.
+- [ ] `/root/emma-pre-*` on the server: five safety copies from one day, worth
       pruning once the work they protect is settled.
 
 **Later**

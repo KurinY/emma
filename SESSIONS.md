@@ -316,13 +316,8 @@ tradurle metterebbe frammenti inglesi davanti a un utente italiano.
 
 **156 test verdi.**
 
-**Pending:**
-
-- [ ] **Chiusura del lavoro #1 da confermare.** La risposta *"Sì, chiudi i
-      lavori"* era sul #2 e l'ho letta come valida per entrambi. È
-      un'interpretazione mia di un plurale: il database non conserva l'istante
-      della risposta, quindi non ho potuto verificare l'ordine dei fatti. Se
-      intendeva solo il #2, il #1 va riaperto.
+**Pending:** nessuno. La chiusura di entrambi i lavori e confermata
+ dall utente: la risposta plurale valeva per tutti e due.
 - [ ] **Tracciabilità:** alle 13:34:58 `tools/development.py` e
       `prompts/system_prompt.txt` sono finiti in produzione (contenuto corretto,
       impronte verificate) **senza che io sappia indicare il comando che l'ha
