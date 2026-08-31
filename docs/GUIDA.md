@@ -1,7 +1,7 @@
 ---
 title: "EMMA — Guida completa"
 subtitle: "Assistente personale self-hosted · versione 1, solo testo"
-version: "v0.2.0"
+version: "v0.3.0"
 date: "31 agosto 2026"
 lang: it
 ---
@@ -469,9 +469,10 @@ te e a nessun altro.
         ▼
  la risposta compare sul telefono
 
- Se [3] fallisce del tutto, il router non solleva l'errore: risponde
- "Non riesco a contattare il cervello in questo momento, riprova tra poco",
- non salva nulla in memoria, e il processo resta vivo.
+ Se [3] fallisce del tutto, il router non solleva l'errore: risponde con una
+ frase che dice quale dei guasti e' successo -- modello irraggiungibile, quota
+ esaurita, risposta vuota, troppi giri di tool -- non salva nulla in memoria, e
+ il processo resta vivo.
 ```
 
 ## 2.3 Pattern adapter: perché `core/` non sa cosa sia Telegram
@@ -596,10 +597,23 @@ ha senso ritentare: un 401 per chiave sbagliata fallisce al primo colpo, perché
 riprovare non la farebbe diventare giusta.
 
 **Livello 2 — il turno** (`core/router.py`). Se tutti i tentativi falliscono,
-l'eccezione non risale: diventa una risposta di cortesia. Ricevi *"Non riesco a
-contattare il cervello in questo momento, riprova tra poco"*, il processo resta
-vivo e il turno fallito non viene salvato in memoria — altrimenti la conversazione
-si riempirebbe di scuse che il modello poi cercherebbe di spiegare.
+l'eccezione non risale: diventa una risposta di cortesia. Il processo resta vivo
+e il turno fallito non viene salvato in memoria — altrimenti la conversazione si
+riempirebbe di scuse che il modello poi cercherebbe di spiegare.
+
+Le frasi non sono intercambiabili, perche' i guasti non lo sono:
+
+| Motivo (nel log) | Cosa ricevi | Perche' e' diverso |
+| --- | --- | --- |
+| `model_unreachable` | *"Non riesco a contattare il cervello… riprova tra poco"* | riprovare ha senso |
+| `quota_exhausted` | *"Ho raggiunto il limite… riprova fra circa 11 minuti"* | riprovare subito **non** ha senso, e il tempo lo dice il server |
+| `empty_answer` | il modello ha risposto senza testo | raro, di solito un turno chiuso su un blocco tool |
+| `tool_loop_ceiling` | troppi giri di strumenti | protegge dal ciclo infinito |
+
+Anche un guasto del **database** e' gestito qui, e non ferma la risposta: se la
+cronologia non si riesce a leggere il turno prosegue senza contesto, e se non si
+riesce a scriverla la risposta parte lo stesso (era gia' stata pagata in token).
+In entrambi i casi il log lo dice a livello `ERROR`.
 
 **Livello 3 — il processo** (`systemd/emma.service`). Se il processo muore
 davvero — un bug non previsto, l'OOM killer, un riavvio della macchina —
@@ -614,10 +628,35 @@ Domanda legittima: il bot funziona in long polling, non riceve richieste HTTP.
 Perché un web server?
 
 Due motivi, uno immediato e uno futuro. L'immediato è l'endpoint `/health` su
-`127.0.0.1:8000`: un `curl` dice se il processo è vivo e quale modello sta usando,
-senza dover leggere i log. Il futuro è il satellite vocale sul Raspberry, che
+`127.0.0.1:8000`: un `curl` dice se il processo è vivo, quale modello sta usando
+e — dalla 0.3.0 — **se sta bene davvero**, senza dover leggere i log. Il futuro
+è il satellite vocale sul Raspberry, che
 dovrà parlare con il nodo centrale via HTTP: quando arriverà, il server ci sarà
 già e l'avvio non andrà ripensato.
+
+Fino alla 0.2.x l'endpoint rispondeva `"status": "ok"` in ogni circostanza,
+database morto compreso: un controllo che non può segnalare nulla è un controllo
+di vitalità con il nome sbagliato. Ora prima di rispondere legge davvero dallo
+store — la stessa operazione da cui dipende ogni turno, molto più economica di
+un `PRAGMA integrity_check` — e se non ci riesce risponde `503` con
+`"status": "degraded"`, così anche un controllo automatico che non sa leggere il
+JSON capisce lo stesso. Insieme pubblica il conteggio dei turni, quanti sono
+degradati, l'ultimo motivo e da quanto tempo:
+
+```bash
+curl -s http://127.0.0.1:8000/health | python3 -m json.tool
+```
+
+| Campo | A cosa serve |
+| --- | --- |
+| `status` / `store` | `ok` oppure `degraded`, con il tipo di errore incontrato |
+| `version` / `commit` | quale codice sta girando davvero, non quale dovrebbe |
+| `turns` / `degraded_turns` | quanto spesso una risposta è stata di ripiego |
+| `last_degraded_reason` | quale dei quattro guasti, per nome |
+| `seconds_since_degraded` | da quanto: `null` significa mai da quando è partita |
+
+> **Nota.** Nessuno interroga questo endpoint automaticamente: va lanciato a
+> mano. Collegarlo a un controllo periodico è la voce 19 del `REVISIONE.md`.
 
 FastAPI e il polling di Telegram condividono **un solo event loop**: uvicorn
 possiede il loop, e l'adapter Telegram viene avviato e fermato dal *lifespan*
@@ -1159,7 +1198,10 @@ Devi leggere `Active: active (running)`. Poi:
 
 ```bash
 curl -s http://127.0.0.1:8000/health
-# {"status":"ok","model":"claude-sonnet-4-6","provider":"anthropic","uptime_seconds":12.4}
+# {"status":"ok","store":"ok","model":"claude-sonnet-4-6","provider":"anthropic",
+#  "version":"0.3.0","commit":"a1b2c3d","uptime_seconds":12.4,
+#  "turns":0,"degraded_turns":0,"last_degraded_reason":null,
+#  "seconds_since_degraded":null}
 
 journalctl -u emma -n 30 --no-pager
 ```
@@ -1592,7 +1634,13 @@ significano le righe che vedrai più spesso:
 | `answered chat_id=... (degraded=False)` | risposta inviata |
 | `ignored message from user_id=... (not in whitelist)` | qualcun altro ha scritto al bot |
 | `anthropic call failed (attempt 1/3)` | tentativo fallito, sta riprovando |
-| `giving up on this turn, model unreachable` | tutti i tentativi falliti, risposta di cortesia |
+| `turn degraded (model_unreachable)` | tutti i tentativi falliti, risposta di cortesia |
+| `turn degraded (quota_exhausted)` | la quota del modello è finita: c'è scritto per quanto |
+| `turn degraded (empty_answer)` \| `(tool_loop_ceiling)` | gli altri due modi in cui un turno può ripiegare |
+| `Groq rate limit is longer than retrying can absorb` | limite lungo (di solito quello giornaliero): rinuncia subito invece di insistere |
+| `could not read the history, answering without it` | database illeggibile: ha risposto lo stesso, senza contesto |
+| `the answer was delivered but not remembered` | risposta consegnata ma non salvata: la prossima volta non la ricorderà |
+| `health probe could not read the conversation store` | `/health` ora risponde `503` |
 | `database integrity check FAILED ...` | database corrotto: è partito il recupero automatico (paragrafo 6.7) |
 | `RECOVERED: history restored from ...` | cronologia ripristinata da uno snapshot |
 
@@ -1992,9 +2040,17 @@ journalctl -u emma | grep "anthropic call failed" | tail -5
   curl -sI https://api.anthropic.com | head -1
   resolvectl query api.anthropic.com
   ```
-- `RateLimitError` / 429 → stai andando troppo veloce; il retry di solito lo
-  assorbe, se persiste rallenta. Sul piano gratuito di Groq è il caso più comune:
-  i limiti al minuto sono più stretti.
+- `RateLimitError` / 429 → **in questo caso non ricevi questa frase**: dalla
+  0.3.0 la quota ha un messaggio suo (*"Ho raggiunto il limite di richieste verso
+  il modello"*), con il tempo di attesa quando il server lo dichiara. EMMA
+  ritenta da sola i limiti brevi — quelli al minuto, che si liberano in pochi
+  secondi — e rinuncia subito quando l'attesa richiesta è più lunga di quanto i
+  tentativi possano coprire, perché insistere renderebbe solo più lento un
+  rifiuto già deciso. Sul piano gratuito di Groq il tetto è **giornaliero**
+  (200.000 token): in quel caso non c'è niente da fare fino al reset.
+  ```bash
+  journalctl -u emma | grep "rate limit" | tail -5
+  ```
 
 Con `LLM_PROVIDER=groq` valgono gli stessi controlli, cercando `groq call failed`
 invece di `anthropic call failed`. Un 404 sul nome del modello significa che
@@ -2208,6 +2264,6 @@ sudo -u emma git -C /opt/emma checkout main
 
 ---
 
-*EMMA v0.2.0 — guida aggiornata al 31 agosto 2026. Il sorgente di questo
+*EMMA v0.3.0 — guida aggiornata al 31 agosto 2026. Il sorgente di questo
 documento è `docs/GUIDA.md`: modificalo lì e rigenera il PDF, così le due
 versioni non divergono.*

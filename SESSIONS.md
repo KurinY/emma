@@ -5,6 +5,92 @@ for the next session. Newest entry at the top.
 
 ---
 
+## 2026-08-31 — Session 6
+
+**Status:** Complete (in attesa di decisione su push e deploy)
+
+**Context:** Continuation di Session 5. Revisione finale per la produzione, su
+richiesta dell'utente: *"Il progetto deve essere stabile quindi gestire
+correttamente tutte le eccezioni. Il programma deve essere fluido il piu
+possibile e il codice deve essere ordinato e deve seguire le buone norme di
+produzione."* Eseguita in autonomia su mandato esplicito
+(*"non disturbarmi finche non hai finito"*), in tre fasi concordate:
+correttezza, osservabilita, ordine.
+
+**Done — fase 1, correttezza (ogni confine con l'esterno):**
+- `core/memory.py`: cinque `assert` sostituiti con `_require_open()` — sparivano
+  sotto `python -O` lasciando un `AttributeError` su `None`. `core/tasks.py` lo
+  faceva gia' correttamente: i due moduli fratelli non erano d'accordo.
+- `core/retry.py` estratto: la formula di backoff era ripetuta 5 volte in 2 moduli
+- `main.py`: lo start-up apriva i due database **prima** del `try`, quindi un
+  errore di Telegram lasciava le connessioni aperte; e lo shutdown era sequenziale,
+  quindi la prima eccezione abbandonava tutto il resto. Ora si smonta esattamente
+  cio' che si e' montato, in ordine inverso.
+- **HTTP 429 trattato come guasto permanente** (era archiviato con i 4xx): un
+  limite al minuto non veniva mai ritentato, e un tetto giornaliero veniva
+  riportato come *"non riesco a contattare il cervello, riprova tra poco"* — la
+  diagnosi sbagliata e un consiglio che poteva solo fallire. E' l'incidente delle
+  17:32 di oggi. Ora ogni client ha un ramo `RateLimitError` **prima** di
+  `APIStatusError` (stesso ordine, e stessa ragione, di `BadRequest` prima di
+  `NetworkError` nell'adapter Telegram); il `retry-after` del server viene pesato
+  contro `remaining_backoff()`, e `LLMQuotaExceededError` porta l'attesa fino
+  all'utente: *"Riprova fra circa 11 minuti."*
+- **Guasto del database prendeva giu' l'intero turno**: la lettura a inizio turno
+  stava fuori dal `try`, le due scritture a fine turno non erano protette. Ora
+  perdere la cronologia costa il contesto, non il turno; e non riuscire a salvare
+  una risposta gia' pagata in token non la butta piu' via.
+- **Un guasto imprevisto produceva silenzio**: l'error handler di PTB teneva vivo
+  il processo ma non diceva niente all'utente. Ora risponde, con la stessa
+  whitelist di ogni altro percorso.
+
+**Done — fase 2, osservabilita:**
+- I quattro modi in cui un turno puo' degradare avevano quattro formati di log e
+  due severita'. Ora passano da un solo `_degrade()`, condividono la riga
+  `turn degraded (<reason>)`, e il motivo viaggia sulla risposta.
+- `TurnStats`: conteggio turni / turni degradati / ultimo motivo / da quanto.
+- **`/health` sapeva solo dire "ok"**, anche a database morto. Ora legge davvero
+  dallo store (la stessa operazione di ogni turno, molto piu' economica di
+  `PRAGMA integrity_check`) e risponde `503 degraded` quando non ci riesce.
+
+**Done — fase 3, ordine e copertura:**
+- Testati i rami di fallimento dell'**auto-riparazione** — quarantena che non
+  riesce a rinominare, snapshot che non si copia, `VACUUM` fallito, snapshot
+  nuovo malato, `chmod` rifiutato, rotazione fallita. Erano tutti presi sulla
+  fiducia: `core/memory.py` 87% → 97%.
+- Coperti i rami connessione/5xx del client **Groq**, che li aveva solo per
+  Anthropic — l'asimmetria che ha gia' fatto divergere i due client una volta.
+- **263 test** (erano 192 a inizio sessione), `core/` al 97%, ruff pulito.
+
+**Docs:** `CHANGELOG.md`, `REVISIONE.md` (voce 19), `docs/GUIDA.md` + `GUIDA.pdf`
+rigenerato (41 pagine; front matter e footer erano ancora fermi a `v0.2.0`).
+
+**Commit di questa sessione:**
+- `d6b63bd` unwind a failed start-up, and cover the two modules that had no tests
+- `0e5f7e3` treat a rate limit as its own kind of failure, not an outage
+- `6675993` do not let the conversation store take the turn down with it
+- `6667a57` answer the user even when the fault was one nobody foresaw
+- `dbd25ba` make a degraded turn say why, and let /health report ill health
+- `ec90095` record the observability work in the changelog
+- `ca8050d` test the self-repair paths that only run on the worst day
+
+**Pending — richiede una tua decisione:**
+- [ ] **Push su GitHub** e **deploy in produzione**: entrambi sono gate tuoi, non
+      li ho fatti.
+- [ ] **`core/llm.py` e' a 758 righe**, l'unico modulo fuori scala (il successivo
+      e' 480). Il piano concordato diceva "spezzarlo", ma misurandolo penso che
+      il vero difetto sia un altro: le due scale di `except` dei due provider
+      sono strutturalmente identiche e duplicate, ed e' esattamente la deriva che
+      ha gia' prodotto un bug reale (Groq che ignorava i tool). Spezzare il file
+      non toglie la duplicazione; togliere la duplicazione tocca la strada che
+      percorre ogni messaggio. Non ho fatto ne' l'una ne' l'altra da solo alla
+      vigilia di una pubblicazione: vedi il riepilogo di fine sessione.
+- [ ] `REVISIONE.md` voce 19: nessuno interroga `/health`. Proposta C (controllo
+      dentro `backup.sh`, che gira gia' alle 03:30) — tocca il deploy, decidi tu.
+- [ ] Coda di produzione: lavoro #3 in `waiting_user` (marca della luce), lavoro
+      #4 duplicato di #3, da abbandonare se confermi.
+
+---
+
 ## 2026-08-31 — Session 5
 
 **Status:** Complete

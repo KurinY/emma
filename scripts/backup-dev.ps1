@@ -105,6 +105,11 @@ try {
     if ($LASTEXITCODE -ge 8) {
         throw "robocopy failed with exit code $LASTEXITCODE"
     }
+    # Codes 1-7 mean success, and one of them is the *normal* result: robocopy
+    # returns 1 whenever it actually copied something. Left in place it becomes
+    # this script's own exit code, so every successful backup reported failure
+    # -- which made a real failure impossible to tell apart from a good run.
+    $global:LASTEXITCODE = 0
 
     Write-Step "creating $archivePath"
     Compress-Archive -Path $stagingProject -DestinationPath $archivePath -CompressionLevel Optimal -Force
@@ -146,3 +151,7 @@ if ($snapshots.Count -gt $Keep) {
 
 $kept = @(Get-ChildItem -LiteralPath $DestinationPath -Filter $pattern -File).Count
 Write-Step "done: $kept snapshot(s) kept in $DestinationPath"
+
+# Say so explicitly. Anything that threw above never reaches this line, so the
+# only way to exit 0 is to have got all the way here.
+exit 0

@@ -47,6 +47,15 @@ change will always be listed here.
 
 ### Fixed
 
+- **`scripts/backup-dev.ps1` reported failure on every successful run.** It
+  checks robocopy's exit code correctly — `>= 8` means a file could not be
+  copied — but never reset `$LASTEXITCODE`, and robocopy returns `1` precisely
+  when it *did* copy something. That value survived to the end of the script
+  and became its own exit status. `CLAUDE.md` asks that a failed backup be
+  reported plainly rather than passed over in silence, which is impossible when
+  the backup always claims to have failed.
+
+
 - **An unforeseen fault produced silence.** The Telegram error handler logged
   the traceback and kept the bot alive, but said nothing to the user. Since the
   router now turns every *known* failure into an answer, reaching that handler
