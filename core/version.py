@@ -17,8 +17,11 @@ that admits it cannot tell.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import subprocess
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 #: The declared version of the assistant.  Bumped by hand when a release is
 #: cut, and paired in the stamp below with the commit, which is what actually
@@ -121,6 +124,60 @@ def describe(root: Path | None = None) -> str:
     if not stamp:
         line += " (letto da git: questa non e' un'installazione deployata)"
     return line + "."
+
+
+#: Directories that legitimately change after a deploy, and so cannot be
+#: evidence that the code did.  ``data`` holds the live database, ``.venv`` is
+#: rebuilt on the machine, the caches are written as the process runs.
+_CHANGES_ON_ITS_OWN = frozenset({".venv", "data", "__pycache__", ".cache", ".git"})
+
+
+def modified_since_deploy(root: Path | None = None) -> list[str]:
+    """Return the source files newer than the deploy that claims to be running.
+
+    The stamp is trusted everywhere -- ``/health`` publishes it, and an
+    assistant asked which version she is reports it with complete confidence.
+    That trust is only earned if the stamp cannot quietly stop being true, and
+    it can: copying one file onto the server with ``scp`` and restarting leaves
+    a stamp describing a commit that is no longer what runs. I did exactly that
+    twice on 31 August 2026, an hour after writing that the stamp had made the
+    question answerable.
+
+    This does not prevent it -- nothing here can -- but it makes the stamp
+    admit it. A file newer than the build time is either an edit made outside a
+    deploy or a clock that moved; both are worth saying out loud.
+
+    Args:
+        root: Installation directory; defaults to the project root.
+
+    Returns:
+        Paths relative to ``root``, sorted, empty when nothing is newer or when
+        there is no stamp to compare against (on a development machine there
+        is none, and the question does not arise).
+    """
+    root = root or PROJECT_ROOT
+    built = _read_stamp(root).get("built", "")
+    if not built:
+        return []
+
+    try:
+        deployed_at = dt.datetime.fromisoformat(built).timestamp()
+    except ValueError:
+        logger.warning("the VERSION stamp carries an unreadable build time: %r", built)
+        return []
+
+    newer: list[str] = []
+    for path in root.rglob("*"):
+        if any(part in _CHANGES_ON_ITS_OWN for part in path.relative_to(root).parts):
+            continue
+        if path.name == STAMP_FILENAME or not path.is_file():
+            continue
+        try:
+            if path.stat().st_mtime > deployed_at + 1:  # a second of slack
+                newer.append(str(path.relative_to(root)).replace("\\", "/"))
+        except OSError:  # vanished mid-walk, or unreadable: not evidence
+            continue
+    return sorted(newer)
 
 
 def summary(root: Path | None = None) -> dict[str, str]:

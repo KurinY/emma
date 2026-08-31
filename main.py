@@ -132,6 +132,22 @@ def create_app(config: Config) -> FastAPI:
             config.memory_db_path,
         )
 
+        # Checked once, here, rather than per request: it is a directory walk,
+        # and the answer cannot change while the process runs. See
+        # core/version.py -- the stamp is only worth trusting if it says so
+        # when it has stopped being true.
+        drifted = version_info.modified_since_deploy()
+        if drifted:
+            logger.error(
+                "%d file(s) changed since this deploy: %s%s. The reported commit "
+                "(%s) no longer describes what is running -- redeploy to fix it.",
+                len(drifted),
+                ", ".join(drifted[:5]),
+                " ..." if len(drifted) > 5 else "",
+                version_info.summary().get("commit", "unknown"),
+            )
+        app.state.drifted_files = drifted
+
         # What has actually been started, with how to stop it. A list rather
         # than an assumption: an unwind must undo what happened, not what the
         # happy path would have done.
@@ -217,6 +233,9 @@ def create_app(config: Config) -> FastAPI:
         return {
             "status": "ok" if healthy else "degraded",
             "store": store,
+            # Not part of `status`: the service works fine, it is the *claim*
+            # about which code it is running that has stopped being reliable.
+            "modified_since_deploy": len(getattr(app.state, "drifted_files", [])),
             "telegram": "listening" if listening else "not polling",
             "model": active_model,
             "provider": config.llm_provider,

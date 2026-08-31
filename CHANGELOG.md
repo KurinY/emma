@@ -12,6 +12,23 @@ change will always be listed here.
 
 ### Added
 
+- **The version stamp now says when it has stopped being true.** `/health`
+  publishes the deployed commit, and EMMA reports it when asked which version
+  she is — with complete confidence, which is only earned if the stamp cannot
+  quietly go stale. It can: copying one file onto the server with `scp` and
+  restarting leaves a stamp describing a commit that is no longer what runs.
+  That happened twice on 31 August, an hour after the stamp was introduced to
+  make the question answerable at all.
+
+  At start-up the installation is compared against the stamp's build time —
+  once, since it is a directory walk and the answer cannot change while the
+  process runs — skipping what legitimately changes on its own (`data/`,
+  `.venv`, the caches). Anything newer is logged at ERROR naming the files, and
+  `/health` carries the count. It is deliberately not part of `status`: the
+  service is working, it is the claim about *which* service that has become
+  unreliable.
+
+
 - **A job can now be dropped from the chat** (`abandon_development`,
   commissioned as job #6). Until now a request could be made from the phone but
   never taken back, so one typed by mistake sat in the queue asking to be dealt
