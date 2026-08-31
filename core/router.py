@@ -22,6 +22,7 @@ place, and registering a tool later requires no change to this file.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
@@ -103,6 +104,10 @@ class AssistantResponse:
 
     text: str
     degraded: bool = False
+    #: Why it degraded, as a short stable slug, or ``None`` for a real answer.
+    #: Carried on the response so one log line says both what happened and why,
+    #: rather than leaving the two to be correlated by timestamp.
+    reason: str | None = None
 
 
 @runtime_checkable
@@ -165,6 +170,49 @@ class ContextProvider(Protocol):
 
 
 @dataclass(slots=True)
+class TurnStats:
+    """What the router has seen since the process started.
+
+    Kept because three faults in one evening were noticed by the user before
+    they were noticed by the service: a send that never landed, a tool that was
+    never called, and a quota that had run out. Each was in the log, and nobody
+    was reading the log. A running count is the cheapest thing that turns "it
+    feels slow lately" into a number somebody can look at.
+
+    Attributes:
+        turns: Turns completed, degraded ones included.
+        degraded: Turns that ended in a fallback rather than a real answer.
+        last_reason: Why the most recent degraded turn degraded.
+        last_at: When that was, as a Unix timestamp.
+    """
+
+    turns: int = 0
+    degraded: int = 0
+    last_reason: str | None = None
+    last_at: float | None = None
+
+    def record(self, reason: str | None) -> None:
+        """Count one finished turn, and remember why if it went badly."""
+        self.turns += 1
+        if reason is None:
+            return
+        self.degraded += 1
+        self.last_reason = reason
+        self.last_at = time.time()
+
+    def summary(self) -> dict[str, object]:
+        """Report the tally in the shape the health endpoint publishes."""
+        return {
+            "turns": self.turns,
+            "degraded_turns": self.degraded,
+            "last_degraded_reason": self.last_reason,
+            "seconds_since_degraded": (
+                None if self.last_at is None else round(time.time() - self.last_at, 1)
+            ),
+        }
+
+
+@dataclass(slots=True)
 class Router:
     """Turns an :class:`AssistantRequest` into an :class:`AssistantResponse`.
 
@@ -185,6 +233,7 @@ class Router:
     context_providers: Sequence[ContextProvider] = ()
     max_tool_iterations: int = DEFAULT_MAX_TOOL_ITERATIONS
     _tools_by_name: dict[str, Tool] = field(init=False, repr=False, default_factory=dict)
+    stats: TurnStats = field(init=False, repr=False, default_factory=TurnStats)
 
     def __post_init__(self) -> None:
         """Index the tools by name and reject duplicate registrations.
@@ -197,6 +246,25 @@ class Router:
             if tool.name in self._tools_by_name:
                 raise ValueError(f"duplicate tool name: {tool.name}")
             self._tools_by_name[tool.name] = tool
+
+    def _degrade(self, reason: str, text: str, detail: str = "") -> AssistantResponse:
+        """Give up on a turn in the one way the whole router gives up.
+
+        The four ways a turn could degrade had four log formats between them
+        and two severities, so "how often does this happen, and which one is
+        it?" could not be answered without reading every line by hand. They now
+        share a shape and a tally.
+
+        Args:
+            reason: A short stable slug, meant to be grepped and counted.
+            text: What the user is told.
+            detail: Anything worth adding for whoever reads the log.
+
+        Returns:
+            The degraded response, ready to return.
+        """
+        logger.error("turn degraded (%s)%s", reason, f": {detail}" if detail else "")
+        return AssistantResponse(text=text, degraded=True, reason=reason)
 
     async def handle(self, request: AssistantRequest) -> AssistantResponse:
         """Run one full turn.
@@ -237,23 +305,17 @@ class Router:
             answer = await self._run_agentic_loop(messages)
         except LLMQuotaExceededError as exc:
             # Before LLMUnavailableError, which it inherits from.
-            logger.error(
-                "conversation=%s: giving up on this turn, quota exhausted (%s)",
-                request.conversation_id,
-                exc,
-            )
-            return AssistantResponse(text=_quota_message(exc.retry_after), degraded=True)
-        except LLMUnavailableError:
-            logger.error(
-                "conversation=%s: giving up on this turn, model unreachable",
-                request.conversation_id,
-            )
-            return AssistantResponse(text=FALLBACK_UNAVAILABLE, degraded=True)
+            answer = self._degrade("quota_exhausted", _quota_message(exc.retry_after), str(exc))
+        except LLMUnavailableError as exc:
+            answer = self._degrade("model_unreachable", FALLBACK_UNAVAILABLE, str(exc))
 
         if answer.degraded:
             # A degraded turn is not worth remembering: storing it would poison
             # the window with an apology the model would then try to explain.
+            self.stats.record(answer.reason)
             return answer
+
+        self.stats.record(None)
 
         # The answer already exists and has already been paid for -- in tokens,
         # and against a daily quota that ran out once.  Failing to file it is a
@@ -306,8 +368,11 @@ class Router:
             if reply.stop_reason != "tool_use" or not tool_uses:
                 text = reply.text
                 if not text:
-                    logger.warning("model returned no text (stop_reason=%s)", reply.stop_reason)
-                    return AssistantResponse(text=FALLBACK_EMPTY, degraded=True)
+                    return self._degrade(
+                        "empty_answer",
+                        FALLBACK_EMPTY,
+                        f"stop_reason={reply.stop_reason}",
+                    )
                 return AssistantResponse(text=text)
 
             # Replay the assistant turn verbatim, then answer every tool_use
@@ -319,8 +384,11 @@ class Router:
                 results.append(await self._execute_tool(call.id, call.name, call.input))
             messages.append({"role": "user", "content": results})
 
-        logger.warning("tool loop hit its ceiling of %d rounds", self.max_tool_iterations)
-        return AssistantResponse(text=FALLBACK_TOO_MANY_STEPS, degraded=True)
+        return self._degrade(
+            "tool_loop_ceiling",
+            FALLBACK_TOO_MANY_STEPS,
+            f"stopped after {self.max_tool_iterations} rounds",
+        )
 
     async def _execute_tool(
         self, call_id: str, name: str, arguments: dict[str, Any]

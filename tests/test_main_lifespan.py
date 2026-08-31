@@ -181,3 +181,74 @@ async def test_the_provider_choice_follows_the_configuration(tmp_path, no_telegr
         create_app(config)
 
     anthropic_client.assert_called_once()
+
+
+# --------------------------------------------------------------------------- #
+# A health endpoint that can report ill health
+# --------------------------------------------------------------------------- #
+#
+# It used to answer "ok" unconditionally, which makes it a liveness check
+# wearing the wrong name: nothing it could ever say would tell you something
+# was wrong. Three faults in one evening were noticed by the user first.
+
+
+def get_health(app, expect: int = 200) -> dict:
+    from fastapi.testclient import TestClient
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        reply = client.get("/health")
+    assert reply.status_code == expect
+    return reply.json()
+
+
+async def test_a_working_store_reports_ok(tmp_path, no_telegram):
+    body = get_health(create_app(build_config(tmp_path)))
+
+    assert body["status"] == "ok"
+    assert body["store"] == "ok"
+
+
+async def test_an_unreadable_store_is_reported_as_degraded(tmp_path, no_telegram):
+    """The case the old endpoint could not express at all."""
+    app = create_app(build_config(tmp_path))
+
+    with patch.object(
+        main.SqliteConversationMemory,
+        "get_history",
+        autospec=True,
+        side_effect=OSError("database is locked"),
+    ):
+        body = get_health(app, expect=503)
+
+    assert body["status"] == "degraded"
+    assert "OSError" in body["store"]
+
+
+async def test_the_status_code_carries_the_same_verdict_as_the_body(tmp_path, no_telegram):
+    """So a checker that understands nothing but HTTP still gets it right."""
+    get_health(create_app(build_config(tmp_path)), expect=200)
+
+
+async def test_the_probe_does_not_invent_a_conversation(tmp_path, no_telegram):
+    """It reads; it must never leave a trace in the history it is inspecting."""
+    from main import HEALTH_PROBE_CONVERSATION
+
+    config = build_config(tmp_path)
+    app = create_app(config)
+    get_health(app)
+
+    memory = SqliteConversationMemory(db_path=config.memory_db_path, max_messages=20)
+    await memory.open()
+    try:
+        assert await memory.get_history(HEALTH_PROBE_CONVERSATION) == []
+    finally:
+        await memory.close()
+
+
+async def test_the_tally_starts_empty_and_is_published(tmp_path, no_telegram):
+    body = get_health(create_app(build_config(tmp_path)))
+
+    assert body["turns"] == 0
+    assert body["degraded_turns"] == 0
+    assert body["last_degraded_reason"] is None
+    assert body["seconds_since_degraded"] is None

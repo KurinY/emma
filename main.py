@@ -22,7 +22,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 
 from adapters.telegram import TelegramAdapter
 from config import Config, ConfigError, load_config
@@ -40,6 +40,12 @@ logger = logging.getLogger("emma")
 #: the network by design: Telegram is reached outbound, via long polling.
 HEALTH_HOST = "127.0.0.1"
 HEALTH_PORT = 8000
+
+#: Conversation id the health probe reads.  It never exists, which is the
+#: point: the read costs nothing and still travels the exact path every turn
+#: depends on -- far cheaper than PRAGMA integrity_check, and a better answer
+#: to "can this process still serve a message?" than a file inspection is.
+HEALTH_PROBE_CONVERSATION = "__health__"
 
 #: Single-line, machine-greppable and human-readable: level, timestamp, logger
 #: and event.  systemd captures stdout, so this is what ``journalctl`` shows.
@@ -178,16 +184,41 @@ def create_app(config: Config) -> FastAPI:
     started_at = time.monotonic()
 
     @app.get("/health")
-    async def health() -> dict[str, object]:
-        """Report that the process is alive, and exactly which code is running."""
+    async def health(response: Response) -> dict[str, object]:
+        """Report whether the process can still do its job, and which code it is.
+
+        This used to answer ``"ok"`` unconditionally, which made it useless for
+        the one thing it exists for: a health check that cannot report ill
+        health is a liveness check wearing the wrong name. It now reads the
+        conversation store before answering, and says so when it cannot.
+
+        The status code carries the same verdict as the body, so a checker that
+        understands nothing but HTTP still gets the answer right.
+        """
+        store = "ok"
+        try:
+            await memory.get_history(HEALTH_PROBE_CONVERSATION)
+        except Exception as exc:
+            store = f"unavailable: {type(exc).__name__}"
+            logger.warning("health probe could not read the conversation store: %s", exc)
+
+        healthy = store == "ok"
+        if not healthy:
+            response.status_code = 503
+
         return {
-            "status": "ok",
+            "status": "ok" if healthy else "degraded",
+            "store": store,
             "model": active_model,
             "provider": config.llm_provider,
             # The commit, not just the version: it is the only field that
             # answers "is this server running what the repository says?".
             **version_info.summary(),
             "uptime_seconds": round(time.monotonic() - started_at, 1),
+            # Three faults in one evening were noticed by the user before they
+            # were noticed here.  A running tally is what makes "it has felt
+            # slow lately" a question with an answer.
+            **router.stats.summary(),
         }
 
     return app

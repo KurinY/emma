@@ -380,3 +380,99 @@ async def test_the_history_is_still_read_when_the_store_works():
     await router.handle(request("come mi chiamo?"))
 
     assert len(await memory.get_history("chat-1")) == 4
+
+
+# --------------------------------------------------------------------------- #
+# Counting what went wrong, and why
+# --------------------------------------------------------------------------- #
+#
+# A turn could degrade in four different ways, each logging in its own format
+# at its own severity, so "how often does this happen, and which one is it?"
+# could not be answered without reading every line by hand. That is roughly how
+# three faults in one evening came to be noticed by the user first.
+
+
+async def test_a_good_turn_is_counted_and_not_blamed():
+    router, _, _ = build_router([text_reply("Sono le 18:30.")])
+
+    answer = await router.handle(request())
+
+    assert router.stats.turns == 1
+    assert router.stats.degraded == 0
+    assert answer.reason is None
+
+
+async def test_an_unreachable_model_names_itself():
+    router, _, _ = build_router([LLMUnavailableError("no route to host")])
+
+    answer = await router.handle(request())
+
+    assert answer.reason == "model_unreachable"
+    assert router.stats.last_reason == "model_unreachable"
+
+
+async def test_a_spent_quota_is_not_confused_with_an_outage():
+    """Two different faults that used to share one fallback and one log line."""
+    from core.llm import LLMQuotaExceededError
+
+    router, _, _ = build_router([LLMQuotaExceededError("spent", retry_after=60.0)])
+
+    answer = await router.handle(request())
+
+    assert answer.reason == "quota_exhausted"
+
+
+async def test_an_empty_answer_names_itself():
+    router, _, _ = build_router([text_reply("")])
+
+    answer = await router.handle(request())
+
+    assert answer.reason == "empty_answer"
+
+
+async def test_hitting_the_tool_ceiling_names_itself():
+    tool = RecordingTool()
+    router, _, _ = build_router(
+        [tool_reply(tool.name) for _ in range(4)], tools=(tool,), max_tool_iterations=3
+    )
+
+    answer = await router.handle(request())
+
+    assert answer.reason == "tool_loop_ceiling"
+
+
+async def test_degraded_turns_accumulate_alongside_good_ones():
+    router, _, _ = build_router([LLMUnavailableError("down"), text_reply("ok"), text_reply("")])
+
+    for _ in range(3):
+        await router.handle(request())
+
+    assert router.stats.turns == 3
+    assert router.stats.degraded == 2
+
+
+async def test_the_tally_reports_how_long_ago_it_went_wrong():
+    router, _, _ = build_router([LLMUnavailableError("down")])
+    await router.handle(request())
+
+    summary = router.stats.summary()
+
+    assert summary["last_degraded_reason"] == "model_unreachable"
+    assert summary["seconds_since_degraded"] is not None
+
+
+async def test_a_healthy_router_reports_no_last_failure():
+    router, _, _ = build_router([text_reply("ok")])
+    await router.handle(request())
+
+    assert router.stats.summary()["seconds_since_degraded"] is None
+
+
+async def test_every_degraded_turn_says_why_in_one_line(caplog):
+    """One shape for all four, so the log can be grepped and counted."""
+    router, _, _ = build_router([LLMUnavailableError("down")])
+
+    with caplog.at_level("ERROR"):
+        await router.handle(request())
+
+    assert any("turn degraded (model_unreachable)" in r.message for r in caplog.records)

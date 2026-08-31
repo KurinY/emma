@@ -1396,6 +1396,39 @@ non scoperta dopo.
 
 ---
 
+## 19. Nessuno interroga `/health` (proposta, 31 agosto 2026)
+
+Durante la revisione per la produzione ho reso onesto l'endpoint `/health`:
+prima rispondeva `"status": "ok"` in ogni circostanza, database morto compreso.
+Ora legge davvero dallo store prima di rispondere e restituisce `503` con
+`"status": "degraded"` quando non ci riesce, insieme al conteggio dei turni e
+al motivo dell'ultimo degrado.
+
+**Resta però il problema vero: nessuno lo legge.** Ho cercato in `systemd/` e
+in `scripts/` e non c'è un solo consumatore. Un endpoint di monitoraggio che
+nessuno interroga non ha mai impedito un guasto — e stasera i guasti li hai
+notati tu tre volte prima del servizio.
+
+Non l'ho collegato da solo perché toccare `systemd/` o aggiungere un job
+periodico significa cambiare il layout di deploy, che la regola 2 mi vieta di
+fare senza che tu lo chieda. Le opzioni, dalla più leggera:
+
+| | Come | Costo | Cosa ottieni |
+| --- | --- | --- | --- |
+| A | `ExecStartPost` / un timer che fa `curl -f localhost:8000/health` | una riga di unit | systemd sa che è degradata, e lo scrive nel journal |
+| B | `WatchdogSec=` + `sd_notify` dal processo | una dipendenza in più (`systemd-python`) e codice nel lifespan | systemd **riavvia** EMMA quando smette di stare bene |
+| C | Aggiungere il controllo a `scripts/backup.sh`, che gira già alle 03:30 | poche righe di shell, zero unit nuove | te ne accorgi entro 24 ore, e il backup sa se sta salvando un DB sano |
+
+**Il mio parere:** la **C** è quella che vale di più subito e costa meno di
+tutte — il job notturno esiste già, gira comunque, e ha una ragione propria per
+voler sapere se il database sta bene *prima* di copiarlo. La **B** è la
+soluzione giusta a lungo termine ma è l'unica che aggiunge una dipendenza, e un
+riavvio automatico su un servizio che parla con te via Telegram va deciso da
+te, non da me: un loop di riavvii è peggio di un servizio degradato che
+risponde.
+
+**Verdetto: la C conviene, ma è una modifica al deploy — dimmi tu.**
+
 ## Riepilogo dei verdetti
 
 | # | Voce | Verdetto |
@@ -1419,6 +1452,8 @@ non scoperta dopo.
 | 16.3 | Mirror automatico generico | non implementato: si ripristina su diagnosi, non su sintomo (16.5) |
 | 16.4 | Snapshot periodici | fase futura, se la finestra di perdita risultasse troppo larga |
 | 17 | EMMA committente del proprio sviluppo | **da fare come v0.3**: tre tool, coda nel database, checkpoint 1/3/4/5 |
+| 18 | Memoria di fatti persistenti | fase futura |
+| 19 | Collegare qualcosa a `/health` | **la C conviene** (controllo dentro `backup.sh`), ma tocca il deploy: decidi tu |
 
 La voce 5 è stata implementata nella v0.1.x (retry solo sugli errori
 transitori). Le 16.1 e 16.2 sono state implementate il 31 agosto 2026. Tutto il
