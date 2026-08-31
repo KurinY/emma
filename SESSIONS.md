@@ -316,6 +316,22 @@ tradurle metterebbe frammenti inglesi davanti a un utente italiano.
 
 **156 test verdi.**
 
+**Confermato in produzione poche ore dopo.** Alle 14:36 una degradazione di
+rete del VPS (anche Groq da <1s a 17-25s per chiamata) ha fatto fallire
+l invio due volte:
+
+```
+14:36:41  telegram send failed (attempt 1/3): TimedOut
+14:36:47  telegram send failed (attempt 2/3): TimedOut
+14:36:49  telegram send succeeded on attempt 3
+14:36:49  answered chat_id=... (60 chars)
+```
+
+Con il codice di stamattina quel messaggio sarebbe sparito in silenzio e
+l utente avrebbe visto un bot morto. Terza degradazione di rete della
+giornata: la fragilita di questo host e ricorrente, e ora costa qualche
+secondo invece di una risposta.
+
 **Pending:** nessuno. La chiusura di entrambi i lavori e confermata
  dall utente: la risposta plurale valeva per tutti e due.
 - [ ] **Tracciabilità:** alle 13:34:58 `tools/development.py` e
