@@ -167,6 +167,7 @@ async def test_the_router_gets_the_tools_and_the_context_provider(tmp_path, no_t
         "request_development",
         "work_status",
         "answer_question",
+        "abandon_development",
         "running_version",
     }
     assert len(kwargs["context_providers"]) == 1

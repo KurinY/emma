@@ -12,6 +12,23 @@ change will always be listed here.
 
 ### Added
 
+- **A job can now be dropped from the chat** (`abandon_development`,
+  commissioned as job #6). Until now a request could be made from the phone but
+  never taken back, so one typed by mistake sat in the queue asking to be dealt
+  with forever — which is how two of the four jobs open this evening got there.
+
+  Nothing is deleted. The row stays, marked abandoned and carrying the reason,
+  which is the same choice made everywhere else here and for the same reason: a
+  corrupt database is quarantined rather than removed, and a decision that can
+  be read back a week later is less final than one that cannot. The reply says
+  so, so the user knows it is reversible.
+
+  Only open jobs can be dropped — abandoning finished work would rewrite the
+  record of what was asked rather than cancel work. The personality prompt asks
+  EMMA to confirm which job she is about to drop before calling the tool,
+  unless the user named the number themselves.
+
+
 - **Context providers**: a `ContextProvider` protocol in `core/router.py` for
   state that must be in front of the model rather than fetched by it. The
   router asks each provider once per turn — not once per tool round, since the

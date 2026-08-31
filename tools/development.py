@@ -247,6 +247,74 @@ class AnswerQuestion:
         )
 
 
+class AbandonDevelopment:
+    """Drop a job the user no longer wants, from the chat."""
+
+    name = "abandon_development"
+    description = (
+        "Drop a development job the user no longer wants, so it stops asking "
+        "to be dealt with. It needs the job number, which work_status gives "
+        "you. Only jobs that are still open can be dropped: one already "
+        "finished stays as it is. Ask the user to confirm before calling this, "
+        "and say which job you are about to drop, unless they already named "
+        "the number themselves."
+    )
+    input_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "number": {
+                "type": "integer",
+                "description": "The number of the job to drop.",
+            },
+            "reason": {
+                "type": "string",
+                "description": (
+                    "Why it is being dropped, in the user's own words when "
+                    "they gave one. Kept with the job, which is not deleted."
+                ),
+            },
+        },
+        "required": ["number"],
+    }
+
+    def __init__(self, store: TaskStore) -> None:
+        """Bind the tool to the queue it writes into."""
+        self._store = store
+
+    async def run(self, arguments: dict[str, Any]) -> str:
+        """Drop the job, or explain why nothing was dropped.
+
+        Nothing is deleted: the row stays, marked abandoned and carrying the
+        reason. The same choice as everywhere else here -- a corrupt database
+        is quarantined rather than removed -- and for the same reason. A user
+        who changes their mind an hour later has something to change it back
+        from, and a request dropped by mistake is still legible.
+        """
+        try:
+            task_id = int(arguments["number"])
+        except (KeyError, TypeError, ValueError):
+            return "Numero del lavoro mancante o non valido: non ho abbandonato nulla."
+
+        # Only open jobs.  Abandoning something already finished would rewrite
+        # history rather than cancel work, and the queue is the only record of
+        # what was asked.
+        open_now = {task.id for task in await self._store.open_tasks()}
+        if task_id not in open_now:
+            return (
+                f"Il lavoro #{task_id} non esiste o non e' piu' aperto. Non ho abbandonato nulla."
+            )
+
+        reason = str(arguments.get("reason", "")).strip()
+        note = (
+            f"Abbandonato su richiesta dell'utente: {reason}"
+            if reason
+            else ("Abbandonato su richiesta dell'utente.")
+        )
+        if await self._store.abandon(task_id, note):
+            return f"Lavoro #{task_id} abbandonato. Resta registrato, non e' stato cancellato."
+        return f"Non sono riuscita ad abbandonare il lavoro #{task_id}."
+
+
 class DevelopmentContext:
     """Puts the current shape of the queue in front of the model every turn.
 
@@ -293,8 +361,10 @@ class DevelopmentContext:
         return line
 
 
-def development_tools(store: TaskStore) -> tuple[RequestDevelopment, WorkStatus, AnswerQuestion]:
-    """Build the three tools around one store.
+def development_tools(
+    store: TaskStore,
+) -> tuple[RequestDevelopment, WorkStatus, AnswerQuestion, AbandonDevelopment]:
+    """Build the development tools around one store.
 
     Args:
         store: The queue they all share.
@@ -302,11 +372,17 @@ def development_tools(store: TaskStore) -> tuple[RequestDevelopment, WorkStatus,
     Returns:
         The tools, ready to hand to the router.
     """
-    return (RequestDevelopment(store), WorkStatus(store), AnswerQuestion(store))
+    return (
+        RequestDevelopment(store),
+        WorkStatus(store),
+        AnswerQuestion(store),
+        AbandonDevelopment(store),
+    )
 
 
 __all__ = [
     "STAGE_ORDER",
+    "AbandonDevelopment",
     "AnswerQuestion",
     "DevelopmentContext",
     "RequestDevelopment",

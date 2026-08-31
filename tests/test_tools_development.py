@@ -256,13 +256,13 @@ async def test_answering_a_task_with_no_question_pending(store):
 
 
 # --------------------------------------------------------------------------- #
-# The three of them together
+# All of them together
 # --------------------------------------------------------------------------- #
 
 
 async def test_a_whole_exchange_through_the_tools(store):
     """Commission, be asked something, answer, see it reflected."""
-    request_tool, status_tool, answer_tool = development_tools(store)
+    request_tool, status_tool, answer_tool, _ = development_tools(store)
 
     await request_tool.run({"request": "vorrei i promemoria"})
     (task,) = await store.open_tasks()
@@ -279,3 +279,147 @@ async def test_a_whole_exchange_through_the_tools(store):
     (after,) = await store.queued()
     assert after.answer == "si', procedi"
     assert "Procedo?" not in await status_tool.run({})
+
+
+# --------------------------------------------------------------------------- #
+# Dropping a job from the chat
+# --------------------------------------------------------------------------- #
+#
+# Commissioned as job #6 on 31 August 2026: until now a request could be made
+# from the phone but never taken back, so a job typed by mistake sat in the
+# queue asking to be dealt with forever. Nothing is deleted -- the row stays,
+# marked abandoned and carrying the reason -- which is the same choice made
+# everywhere else here, and for the same reason: a corrupt database is
+# quarantined rather than removed, and a decision that can be read back is
+# less final than one that cannot.
+
+
+async def test_an_open_job_can_be_dropped(store):
+    _, _, _, abandon = development_tools(store)
+    task_id = await store.create("una richiesta sbagliata")
+
+    reply = await abandon.run({"number": task_id, "reason": "l'ho scritta per errore"})
+
+    assert f"#{task_id}" in reply
+    assert await store.open_tasks() == []
+
+
+async def closed_task(store, task_id):
+    """Read a task the public queries deliberately no longer return."""
+    # _select is private, and reaching for it is the point: everything public
+    # filters to open jobs, so nothing else can prove the row survived.
+    (task,) = await store._select(f"WHERE id = {int(task_id)}")
+    return task
+
+
+async def test_the_job_is_kept_not_deleted(store):
+    """The whole point of abandoning rather than deleting."""
+    _, _, _, abandon = development_tools(store)
+    task_id = await store.create("una richiesta sbagliata")
+
+    await abandon.run({"number": task_id, "reason": "errore"})
+
+    task = await closed_task(store, task_id)
+    assert task.status == "abandoned"
+    assert task.request == "una richiesta sbagliata"
+
+
+async def test_the_reason_is_kept_with_it(store):
+    """So a decision taken in one message can be understood a week later."""
+    _, _, _, abandon = development_tools(store)
+    task_id = await store.create("una richiesta sbagliata")
+
+    await abandon.run({"number": task_id, "reason": "l'ho scritta per errore"})
+
+    assert "l'ho scritta per errore" in (await closed_task(store, task_id)).note
+
+
+async def test_dropping_it_without_a_reason_still_says_who_asked(store):
+    _, _, _, abandon = development_tools(store)
+    task_id = await store.create("una richiesta")
+
+    await abandon.run({"number": task_id})
+
+    assert "richiesta dell'utente" in (await closed_task(store, task_id)).note
+
+
+async def test_the_reply_says_it_was_kept(store):
+    """The user is told the decision is reversible, because it is."""
+    _, _, _, abandon = development_tools(store)
+    task_id = await store.create("una richiesta")
+
+    reply = await abandon.run({"number": task_id})
+
+    assert "non e' stato cancellato" in reply
+
+
+async def test_a_job_that_does_not_exist_changes_nothing(store):
+    _, _, _, abandon = development_tools(store)
+
+    reply = await abandon.run({"number": 999})
+
+    assert "non esiste" in reply
+    assert "Non ho abbandonato nulla" in reply
+
+
+async def test_a_finished_job_is_left_alone(store):
+    """Abandoning finished work would rewrite history, not cancel work."""
+    _, _, _, abandon = development_tools(store)
+    task_id = await store.create("un lavoro concluso")
+    await store.finish(task_id, "fatto")
+
+    reply = await abandon.run({"number": task_id})
+
+    assert "non e' piu' aperto" in reply
+
+
+async def test_dropping_it_twice_is_refused_the_second_time(store):
+    _, _, _, abandon = development_tools(store)
+    task_id = await store.create("una richiesta")
+    await abandon.run({"number": task_id})
+
+    reply = await abandon.run({"number": task_id})
+
+    assert "Non ho abbandonato nulla" in reply
+
+
+async def test_a_missing_number_drops_nothing(store):
+    _, _, _, abandon = development_tools(store)
+    task_id = await store.create("una richiesta")
+
+    reply = await abandon.run({})
+
+    assert "non valido" in reply
+    assert len(await store.open_tasks()) == 1
+    assert (await store.open_tasks())[0].id == task_id
+
+
+async def test_a_number_that_is_not_a_number_drops_nothing(store):
+    _, _, _, abandon = development_tools(store)
+    await store.create("una richiesta")
+
+    reply = await abandon.run({"number": "il primo"})
+
+    assert "non valido" in reply
+    assert len(await store.open_tasks()) == 1
+
+
+async def test_a_waiting_job_can_be_dropped_too(store):
+    """A job stuck on a question the user no longer wants to answer."""
+    _, _, _, abandon = development_tools(store)
+    task_id = await store.create("una richiesta")
+    await store.advance(task_id, "understood", "quale marca?")
+
+    reply = await abandon.run({"number": task_id, "reason": "lascia perdere"})
+
+    assert f"#{task_id}" in reply
+    assert await store.open_tasks() == []
+
+
+async def test_the_tool_is_declared_to_the_model(store):
+    """A tool the model cannot see is a tool that does not exist."""
+    _, _, _, abandon = development_tools(store)
+
+    assert abandon.name == "abandon_development"
+    assert "number" in abandon.input_schema["required"]
+    assert "confirm" in abandon.description.lower()

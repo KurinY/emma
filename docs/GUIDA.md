@@ -839,13 +839,23 @@ stato deliberatamente escluso, è la voce 17 di `REVISIONE.md`.
 passaggio si ferma in attesa di una tua risposta. Lo `stage` registra cosa è
 *fatto*; la nota ti chiede il permesso per il passo successivo.
 
-`tools/development.py` contiene i tre strumenti che EMMA può chiamare:
+`tools/development.py` contiene i quattro strumenti che EMMA può chiamare:
 
 | Strumento | Quando lo usa |
 | --- | --- |
 | `request_development` | registri una richiesta di modifica |
 | `work_status` | chiedi a che punto sono i lavori |
 | `answer_question` | rispondi a una domanda in sospeso |
+| `abandon_development` | vuoi togliere di mezzo un lavoro che non ti serve più |
+
+**Abbandonare non cancella.** La riga resta nel database, marcata `abandoned` e
+con il motivo che hai dato: un lavoro tolto per sbaglio è ancora leggibile, e
+una decisione presa in un messaggio si può capire una settimana dopo. È la
+stessa scelta fatta per il database corrotto, che viene messo in quarantena e
+mai rimosso. Si possono abbandonare solo i lavori **aperti**: toglierne uno già
+concluso riscriverebbe la storia di ciò che è stato chiesto, non annullerebbe
+del lavoro. Il prompt chiede a EMMA di dirti quale lavoro sta per abbandonare e
+di aspettare conferma, a meno che il numero l'abbia detto tu.
 
 Due proprietà da conoscere, perché spiegano perché è fatto così:
 
