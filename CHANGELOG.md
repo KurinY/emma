@@ -26,6 +26,18 @@ change will always be listed here.
 
 ### Fixed
 
+- **A failure of the conversation store took the whole turn down.** Neither
+  the read at the start of a turn nor the two writes at the end were guarded,
+  so a locked database — a long backup holds one — or a full disk produced no
+  reply at all. From a phone that is indistinguishable from a dead bot: the
+  same silence that hid the Telegram send failures, arriving by another route.
+
+  Neither fault is a reason not to speak, and they are not equally costly.
+  Losing the history costs context, so the turn now continues without it. The
+  writes happen *after* the model has answered — tokens already spent, against
+  a daily quota that has run out once — so failing to file that answer must
+  never be allowed to discard it. Both are logged at ERROR with the reason.
+
 - **A rate limit was treated as a permanent failure, and reported as an
   outage.** On the evening of 31 August 2026 the Groq daily token quota ran
   out. The log recorded exactly why — `on tokens per day (TPD): Limit 200000,

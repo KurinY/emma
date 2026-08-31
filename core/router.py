@@ -201,9 +201,15 @@ class Router:
     async def handle(self, request: AssistantRequest) -> AssistantResponse:
         """Run one full turn.
 
-        This coroutine never raises because of the model or of a tool: every
-        failure is turned into a polite, degraded answer, so the process stays
-        alive and the user is never left without a reply.
+        This coroutine does not raise. A failure of the model, of a tool or of
+        the conversation store is turned into the best answer still available,
+        so the process stays alive and the user is never left without a reply.
+
+        The three are not equally serious, and are not treated alike. The model
+        being unreachable leaves nothing to say, so it produces an apology. A
+        tool or a context provider failing costs one piece of information, so
+        the turn continues without it. The store failing costs memory, not
+        speech: the reply still goes out.
 
         Args:
             request: The incoming message.
@@ -211,7 +217,19 @@ class Router:
         Returns:
             The reply to send back.
         """
-        history = await self.memory.get_history(request.conversation_id)
+        # Losing the history costs context; refusing to answer costs the turn.
+        # The store is a file on a disk that can fill up and a database that a
+        # long backup can hold locked, and neither is a reason to leave someone
+        # staring at a silent chat.
+        try:
+            history = await self.memory.get_history(request.conversation_id)
+        except Exception:
+            logger.exception(
+                "conversation=%s: could not read the history, answering without it",
+                request.conversation_id,
+            )
+            history = []
+
         messages: list[Message] = [{"role": item.role, "content": item.content} for item in history]
         messages.append({"role": "user", "content": request.text})
 
@@ -237,13 +255,24 @@ class Router:
             # the window with an apology the model would then try to explain.
             return answer
 
-        await self.memory.append(
-            request.conversation_id, StoredMessage(role="user", content=request.text)
-        )
-        await self.memory.append(
-            request.conversation_id,
-            StoredMessage(role="assistant", content=answer.text),
-        )
+        # The answer already exists and has already been paid for -- in tokens,
+        # and against a daily quota that ran out once.  Failing to file it is a
+        # reason to log loudly, never a reason to throw it away.
+        try:
+            await self.memory.append(
+                request.conversation_id,
+                StoredMessage(role="user", content=request.text),
+            )
+            await self.memory.append(
+                request.conversation_id,
+                StoredMessage(role="assistant", content=answer.text),
+            )
+        except Exception:
+            logger.exception(
+                "conversation=%s: the answer was delivered but not remembered",
+                request.conversation_id,
+            )
+
         return answer
 
     async def _run_agentic_loop(self, messages: list[Message]) -> AssistantResponse:

@@ -285,3 +285,98 @@ def test_duplicate_tool_names_are_rejected():
             system_prompt=SYSTEM_PROMPT,
             tools=(RecordingTool(), RecordingTool()),
         )
+
+
+# --------------------------------------------------------------------------- #
+# When the conversation store is the thing that breaks
+# --------------------------------------------------------------------------- #
+#
+# The store is a file on a disk that can fill up, and a database a long backup
+# can hold locked. Neither call to it used to be guarded, so either fault took
+# the whole turn down and the user saw nothing at all -- from a phone,
+# indistinguishable from a dead bot. That is the same silence that hid the
+# Telegram send failures, arriving by a different route.
+
+
+class BrokenMemory(InMemoryConversationMemory):
+    """A store that fails on the half it is told to fail on."""
+
+    def __init__(self, *, on_read: bool = False, on_write: bool = False) -> None:
+        super().__init__(max_messages=20)
+        self._on_read = on_read
+        self._on_write = on_write
+
+    async def get_history(self, conversation_id: str):
+        """Fail the way a locked database does."""
+        if self._on_read:
+            raise OSError("database is locked")
+        return await super().get_history(conversation_id)
+
+    async def append(self, conversation_id: str, message: StoredMessage) -> None:
+        """Fail the way a full disk does."""
+        if self._on_write:
+            raise OSError("no space left on device")
+        await super().append(conversation_id, message)
+
+
+def build_router_with(memory, replies: list[LLMResponse | Exception]) -> Router:
+    return Router(
+        llm=ScriptedModel(replies),
+        memory=memory,
+        system_prompt=SYSTEM_PROMPT,
+    )
+
+
+async def test_an_unreadable_history_still_produces_an_answer():
+    """Losing the context costs the context, not the turn."""
+    router = build_router_with(BrokenMemory(on_read=True), [text_reply("Sono le 18:30.")])
+
+    answer = await router.handle(request())
+
+    assert answer.text == "Sono le 18:30."
+    assert not answer.degraded
+
+
+async def test_an_unreadable_history_is_reported(caplog):
+    router = build_router_with(BrokenMemory(on_read=True), [text_reply("ok")])
+
+    with caplog.at_level("ERROR"):
+        await router.handle(request())
+
+    assert any("could not read the history" in r.message for r in caplog.records)
+
+
+async def test_an_unwritable_store_does_not_discard_the_answer():
+    """The reply is already paid for, in tokens and against a daily quota."""
+    router = build_router_with(BrokenMemory(on_write=True), [text_reply("Sono le 18:30.")])
+
+    answer = await router.handle(request())
+
+    assert answer.text == "Sono le 18:30."
+
+
+async def test_an_unwritable_store_is_reported(caplog):
+    router = build_router_with(BrokenMemory(on_write=True), [text_reply("ok")])
+
+    with caplog.at_level("ERROR"):
+        await router.handle(request())
+
+    assert any("delivered but not remembered" in r.message for r in caplog.records)
+
+
+async def test_a_broken_store_does_not_reach_the_caller():
+    """Whatever else happens, the adapter must never see an exception."""
+    for memory in (BrokenMemory(on_read=True), BrokenMemory(on_write=True)):
+        router = build_router_with(memory, [text_reply("ok")])
+
+        await router.handle(request())  # must not raise
+
+
+async def test_the_history_is_still_read_when_the_store_works():
+    """The guard must not have quietly stopped anyone from using memory."""
+    router, _, memory = build_router([text_reply("prima"), text_reply("seconda")])
+    await router.handle(request("mi chiamo Matteo"))
+
+    await router.handle(request("come mi chiamo?"))
+
+    assert len(await memory.get_history("chat-1")) == 4
