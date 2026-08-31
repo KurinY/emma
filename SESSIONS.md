@@ -7,7 +7,7 @@ for the next session. Newest entry at the top.
 
 ## 2026-09-01 — Session 7
 
-**Status:** Completa in locale; **non ancora pushata ne' deployata**
+**Status:** Completa, pushata e in produzione (`15d2531`)
 
 **Context:** Continuation di Session 6. Mandato aperto dell'utente: *"continuare
 a lavorare sulla versione corrente e apportare tutte le modifiche di
@@ -63,7 +63,24 @@ lettura della cronologia e la scrittura; e' sicuro solo perche' PTB e' a
 `max_concurrent_updates=1`. Verificato, non supposto. Il lock per conversazione
 va fatto come primo passo del satellite vocale, prima del secondo canale.
 
-**Numeri:** 355 test (erano 324 a inizio sessione), copertura 98%,
+**Coda della sessione — un difetto introdotto e corretto subito:** al primo
+deploy il controllo dello stamp ha segnalato un file su un'installazione appena
+fatta (`.pytest_cache/v/cache/nodeids`). Aveva ragione sul fatto e torto sul
+giudizio: il passo remoto del deploy esegue la suite sul server **dopo** aver
+scritto lo stamp, quindi quella cache e' sempre piu' recente di `built`. Ogni
+deploy avrebbe segnalato una deriva inesistente, e un allarme che suona sempre
+insegna a ignorarlo proprio quando ha ragione. Corretto e riverificato in
+produzione: `modified_since_deploy: 0`.
+
+**Aggiunta `REVISIONE.md` voce 22**, emersa indagando quel falso positivo: il
+deploy fa `tar -xzf` sopra l'albero, quindi **non rimuove mai niente**. Un
+modulo Python cancellato dal repository resta importabile in produzione — in
+sviluppo l'import fallisce, sul server funziona, eseguendo codice che non
+esiste in nessun commit. La correzione e' `rsync --delete`, che riscrive la
+strada per cui passa ogni messa in produzione: da fare da svegli, provata a
+vuoto prima.
+
+**Numeri:** 357 test (erano 324 a inizio sessione), copertura 98%,
 `adapters/telegram.py` e `config.py` al 100%, ruff pulito.
 
 **Commit:**
