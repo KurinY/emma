@@ -6,7 +6,11 @@ fully isolated and leave no state behind.
 
 from __future__ import annotations
 
+import contextlib
 import os
+import pathlib
+import shutil
+from unittest.mock import patch
 
 import pytest
 
@@ -306,3 +310,191 @@ async def test_write_ahead_logging_is_enabled(tmp_path):
     await m.close()
 
     assert mode.lower() == "wal"
+
+
+# --------------------------------------------------------------------------- #
+# When the repair is itself what fails
+# --------------------------------------------------------------------------- #
+#
+# Self-repair only ever runs on the worst day the service has, and until now
+# only its successful paths were tested -- so every decision it makes when a
+# step fails was being trusted on faith. Each of these branches is a choice:
+# give up rather than restore over a file we could not set aside, try the
+# older snapshot rather than none, keep running without a fresh snapshot
+# rather than refuse to start.
+
+
+@contextlib.asynccontextmanager
+async def released(db):
+    """Yield a store and release its connection whatever the test breaks.
+
+    ``close()`` takes a snapshot before closing, which is precisely the step
+    these tests sabotage, so it cannot be relied on to get us to the connection.
+    Leaving one open leaks a non-daemon thread that keeps the whole pytest
+    session alive after the assertions have passed -- a test that leaks the
+    resource it exists to prove is released.
+    """
+    store = SqliteConversationMemory(db_path=db, max_messages=10)
+    try:
+        yield store
+    finally:
+        with contextlib.suppress(Exception):
+            await store.close()
+        if store._db is not None:  # close() never got that far
+            await store._db.close()
+            store._db = None
+
+
+async def stored(db, conversation, message):
+    """Write one message and leave a healthy snapshot behind."""
+    m = SqliteConversationMemory(db_path=db, max_messages=10)
+    await m.open()
+    await m.append(conversation, message)
+    await m.close()
+
+
+async def reopen(db) -> list[StoredMessage]:
+    m = SqliteConversationMemory(db_path=db, max_messages=10)
+    await m.open()
+    try:
+        return await m.get_history("c1")
+    finally:
+        await m.close()
+
+
+async def test_a_database_that_cannot_be_set_aside_is_not_restored_over(tmp_path, caplog):
+    """Giving up beats writing a good snapshot on top of evidence.
+
+    The corrupt file is the only copy of whatever was not snapshotted yet.
+    """
+    db = tmp_path / "stuck.db"
+    await stored(db, "c1", user("prima"))
+    corrupt(db)
+
+    async with released(db) as m:
+        with (
+            caplog.at_level("ERROR"),
+            patch.object(pathlib.Path, "rename", side_effect=OSError("permission denied")),
+            contextlib.suppress(Exception),
+        ):
+            await m.open()
+
+    assert any("could not move the corrupt database aside" in r.message for r in caplog.records)
+    assert list(tmp_path.glob("*.corrupt-*")) == []
+
+
+async def test_an_unrestorable_snapshot_falls_through_to_the_older_one(tmp_path, caplog):
+    """A copy that fails is the same as a snapshot that is not there."""
+    db = tmp_path / "two.db"
+    await stored(db, "c1", user("vecchia"))
+    await stored(db, "c1", user("nuova"))  # rotates the first into .snapshot-prev
+    corrupt(db)
+
+    real = shutil.copy2
+    calls: list[object] = []
+
+    def fail_once(src, dst, *a, **k):
+        calls.append(src)
+        if len(calls) == 1:
+            raise OSError("input/output error")
+        return real(src, dst, *a, **k)
+
+    with caplog.at_level("ERROR"), patch.object(shutil, "copy2", side_effect=fail_once):
+        history = await reopen(db)
+
+    assert any("could not restore snapshot" in r.message for r in caplog.records)
+    assert len(calls) == 2  # it tried the newer one, then the one before it
+    assert history == [user("vecchia")]
+
+
+async def test_a_snapshot_that_cannot_be_written_does_not_stop_the_service(tmp_path, caplog):
+    """Not having a fresh snapshot is a degraded state, not a reason to refuse."""
+    db = tmp_path / "novacuum.db"
+
+    async with released(db) as m:
+        with (
+            caplog.at_level("WARNING"),
+            patch.object(
+                SqliteConversationMemory,
+                "_write_snapshot",
+                autospec=True,
+                side_effect=OSError("full"),
+            ),
+            contextlib.suppress(OSError),
+        ):
+            await m.open()
+
+    m2 = SqliteConversationMemory(db_path=db, max_messages=10)
+    await m2.open()
+    await m2.append("c1", user("ancora viva"))
+    await m2.close()
+
+    assert await reopen(db) == [user("ancora viva")]
+
+
+async def test_an_unhealthy_new_snapshot_never_displaces_a_good_one(tmp_path, caplog):
+    """A snapshot must never be replaced by something worse than itself.
+
+    Only the freshly written copy is condemned. Failing the check outright
+    would condemn the live database too and send us down the recovery path, so
+    the test would pass for a reason it does not claim.
+    """
+    db = tmp_path / "guard.db"
+    await stored(db, "c1", user("buona"))
+    good = (tmp_path / "guard.db.snapshot").read_bytes()
+
+    async def only_the_new_copy_is_bad(path):  # a staticmethod: no self
+        return not str(path).endswith(".tmp")
+
+    async with released(db) as m:
+        with (
+            caplog.at_level("WARNING"),
+            patch.object(
+                SqliteConversationMemory,
+                "_file_is_healthy",
+                autospec=True,
+                side_effect=only_the_new_copy_is_bad,
+            ),
+        ):
+            await m.open()
+            await m.close()
+
+    assert any("unhealthy, discarding it" in r.message for r in caplog.records)
+    assert (tmp_path / "guard.db.snapshot").read_bytes() == good
+    # The live file was never condemned, so recovery never ran.
+    assert list(tmp_path.glob("*.corrupt-*")) == []
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+async def test_a_snapshot_that_cannot_be_locked_down_is_still_kept(tmp_path, caplog):
+    """The permissions matter, but losing the snapshot over them would be worse."""
+    db = tmp_path / "chmod.db"
+
+    m = SqliteConversationMemory(db_path=db, max_messages=10)
+    with (
+        caplog.at_level("WARNING"),
+        patch.object(pathlib.Path, "chmod", side_effect=OSError("unsupported")),
+    ):
+        await m.open()
+        await m.append("c1", user("presente"))
+        await m.close()
+
+    assert any("could not restrict permissions" in r.message for r in caplog.records)
+    assert (tmp_path / "chmod.db.snapshot").exists()
+
+
+async def test_a_failed_rotation_does_not_leave_a_stray_temporary(tmp_path, caplog):
+    """Otherwise every failed snapshot would leave another file behind."""
+    db = tmp_path / "rotate.db"
+    await stored(db, "c1", user("prima"))
+
+    m = SqliteConversationMemory(db_path=db, max_messages=10)
+    with (
+        caplog.at_level("WARNING"),
+        patch.object(pathlib.Path, "replace", side_effect=OSError("cross-device link")),
+    ):
+        await m.open()
+        await m.close()
+
+    assert any("could not rotate the database snapshots" in r.message for r in caplog.records)
+    assert list(tmp_path.glob("*.tmp")) == []

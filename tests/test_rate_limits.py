@@ -314,3 +314,61 @@ async def test_a_degraded_quota_turn_is_not_remembered():
     await router.handle(AssistantRequest(conversation_id="1", user_id=1, text="ciao"))
 
     memory.append.assert_not_awaited()
+
+
+# --------------------------------------------------------------------------- #
+# The rest of the ladder, on both providers
+# --------------------------------------------------------------------------- #
+#
+# These cases were covered for Anthropic and not for Groq -- the provider that
+# actually runs in production. That asymmetry is how the two clients drifted
+# apart the first time, when Groq silently ignored every tool declaration for a
+# release. Running the same description against both is the cheap guard.
+
+
+def connection_error(sdk):
+    return sdk.APIConnectionError(
+        request=httpx.Request("POST", "https://example.invalid/v1/messages")
+    )
+
+
+def server_error(sdk):
+    response = httpx.Response(
+        503, request=httpx.Request("POST", "https://example.invalid/v1/messages")
+    )
+    return sdk.InternalServerError("server down", response=response, body=None)
+
+
+async def test_a_connection_failure_is_retried(client):
+    client.create.side_effect = [connection_error(client.sdk), client.reply()]
+
+    await ask(client)
+
+    assert client.create.await_count == 2
+
+
+async def test_a_connection_failure_gives_up_at_the_ceiling(client):
+    client.create.side_effect = connection_error(client.sdk)
+
+    with pytest.raises(LLMUnavailableError):
+        await ask(client)
+
+    assert client.create.await_count == 3
+
+
+async def test_a_server_error_is_retried(client):
+    client.create.side_effect = [server_error(client.sdk), client.reply()]
+
+    await ask(client)
+
+    assert client.create.await_count == 2
+
+
+async def test_exhausting_the_retries_is_not_reported_as_a_quota(client):
+    """An outage and a refusal now say different things to the user."""
+    client.create.side_effect = server_error(client.sdk)
+
+    with pytest.raises(LLMUnavailableError) as raised:
+        await ask(client)
+
+    assert not isinstance(raised.value, LLMQuotaExceededError)
