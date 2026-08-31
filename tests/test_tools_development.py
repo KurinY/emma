@@ -109,7 +109,60 @@ async def test_status_surfaces_a_pending_question(store):
     result = await WorkStatus(store).run({})
 
     assert "Committo?" in result
-    assert "DOMANDA" in result
+    assert "ATTENDE UNA RISPOSTA" in result
+
+
+async def test_the_question_comes_before_the_original_request(store):
+    """A model told to be brief keeps the beginning, so the question leads.
+
+    Leading with the request once cost the user a wrong answer: EMMA relayed
+    their own ambiguous wording and dropped the clarification that resolved it.
+    """
+    task_id = await store.create("una richiesta scritta in modo ambiguo")
+    await store.advance(task_id, "understood", "Ho capito cosi: X. Procedo?")
+    await store.touch()
+
+    result = await WorkStatus(store).run({})
+
+    assert result.index("Ho capito cosi") < result.index("ambiguo")
+
+
+async def test_every_task_is_listed_when_several_wait(store):
+    """Reporting only one of them is the failure this guards against."""
+    first = await store.create("il primo lavoro")
+    second = await store.create("il secondo lavoro")
+    await store.advance(first, "understood", "Prima domanda. Procedo?")
+    await store.advance(second, "understood", "Seconda domanda. Procedo?")
+    await store.touch()
+
+    result = await WorkStatus(store).run({})
+
+    assert f"#{first}" in result and f"#{second}" in result
+    assert "Prima domanda" in result and "Seconda domanda" in result
+
+
+async def test_the_listing_tells_the_model_not_to_summarise(store):
+    """The personality says be brief; this answer is the exception."""
+    task_id = await store.create("un lavoro")
+    await store.advance(task_id, "understood", "Procedo?")
+    await store.touch()
+
+    result = await WorkStatus(store).run({})
+
+    assert "non riassumere" in result.lower()
+
+
+async def test_a_long_request_is_shortened_but_the_question_is_not(store):
+    long_request = "parola " * 60
+    task_id = await store.create(long_request)
+    long_note = "Nota lunga che deve arrivare intera. " * 6
+    await store.advance(task_id, "understood", long_note)
+    await store.touch()
+
+    result = await WorkStatus(store).run({})
+
+    assert "..." in result
+    assert long_note.strip() in result
 
 
 async def test_status_hides_finished_work(store):

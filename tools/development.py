@@ -44,6 +44,12 @@ _STAGE_LABELS: dict[str, str] = {
 }
 
 
+def _shorten(text: str, limit: int = 90) -> str:
+    """Trim long text for the context half of a listing line."""
+    text = text.strip()
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "..."
+
+
 def _describe_age(seconds: float) -> str:
     """Render an age in words a model can pass on without doing arithmetic."""
     if seconds < 90:
@@ -121,7 +127,26 @@ class WorkStatus:
         if not tasks:
             return "Nessun lavoro di sviluppo aperto."
 
-        lines = [self._describe(task) for task in tasks]
+        # The personality tells EMMA to answer in two or three short sentences,
+        # which is right for conversation and wrong for this: a model handed a
+        # long list under a brevity instruction compresses it, and what gets
+        # dropped is a whole task or the question inside one. Say plainly, here
+        # where the model is reading, that this particular answer is a list.
+        waiting = sum(1 for t in tasks if t.status == "waiting_user")
+        header = (
+            f"{len(tasks)} lavori di sviluppo aperti."
+            if len(tasks) > 1
+            else "1 lavoro di sviluppo aperto."
+        )
+        header += (
+            " Riferiscili TUTTI all'utente, ognuno con il suo numero, e riporta"
+            " ogni domanda per intero: qui non riassumere e non sceglierne uno."
+        )
+        if waiting:
+            header += f" {waiting} attendono una sua risposta."
+
+        lines = [header, ""]
+        lines.extend(self._describe(task) for task in tasks)
 
         warning = await self._staleness_warning()
         if warning:
@@ -130,12 +155,23 @@ class WorkStatus:
         return "\n".join(lines)
 
     def _describe(self, task: Task) -> str:
-        """Render one task as a single line of fact."""
-        label = _STAGE_LABELS.get(task.stage, task.stage)
-        line = f"#{task.id} [{label}] {task.request}"
+        """Render one task, question first when there is one.
+
+        The order matters more than it looks. A model asked to be brief keeps
+        the beginning of what it is given, so whatever leads is what survives.
+        For a task waiting on an answer the question is the useful half; the
+        original wording is context, and often the ambiguous phrasing the
+        question exists to resolve. Leading with the request once cost the user
+        a wrong answer about their own task.
+        """
         if task.status == "waiting_user" and task.note:
-            line += f" -- DOMANDA IN ATTESA DI RISPOSTA: {task.note}"
-        return line
+            return (
+                f"#{task.id} ATTENDE UNA RISPOSTA DELL'UTENTE.\n"
+                f"   Domanda da riferire per intero: {task.note}\n"
+                f"   (la richiesta originale era: {_shorten(task.request)})"
+            )
+        label = _STAGE_LABELS.get(task.stage, task.stage)
+        return f"#{task.id} [{label}] {task.request}"
 
     async def _staleness_warning(self) -> str:
         """Say so when nobody has looked at the queue for a long time.
