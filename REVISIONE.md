@@ -1182,6 +1182,25 @@ strada.
   che aggiorno a ogni risveglio e che EMMA ti riferisce quando chiedi lo stato,
   così *"ultimo contatto: due giorni fa"* ti dice che la sessione è da
   riaprire.
+
+  **Osservato il 31 agosto, e più grave del previsto.** Il guardiano ha fatto
+  due giri regolari (13:29, 13:34, esattamente a 300 secondi) e poi si è
+  fermato prima del terzo, **senza codice di uscita e senza errori**: non è
+  morto per un difetto suo, è stato smontato dall'esterno. Un comando in
+  background non è garantito sopravvivere a lungo alla sessione che lo ha
+  avviato.
+
+  Ne discende una divisione onesta dei ruoli, che vale la pena tenere a mente
+  invece di scoprirla di nuovo:
+
+  | Pezzo | Affidabilità |
+  | --- | --- |
+  | hook `SessionStart` (17.6bis) | **certa** — scatta a ogni apertura, nessun processo da tenere vivo |
+  | guardiano `watch-tasks.sh` | **al meglio delle possibilità** — utile finché vive, non una garanzia |
+
+  Il risultato pratico è comunque accettabile: apri una sessione e sai subito
+  se c'è lavoro; mentre lavori, se il guardiano è vivo ti sveglia. Quello che
+  **non** si può promettere è "commissiono di notte e lo trovo fatto".
 - **Il contesto si esaurisce** su una sessione lunga: ricordo le decisioni, non
   ogni dettaglio. `SESSIONS.md` e `ROADMAP.md` sono la memoria vera e vanno
   aggiornati spesso, non a fine sessione.

@@ -1361,6 +1361,17 @@ scripts/watch-tasks.sh                       # ogni 5 minuti, per 6 ore
 POLL_SECONDS=60 scripts/watch-tasks.sh       # più reattivo
 ```
 
+> **Non contarci come se fosse un servizio.** Un processo in background non è
+> garantito sopravvivere a lungo alla sessione che l'ha avviato: è stato
+> osservato fermarsi dopo due giri regolari, senza errori e senza codice di
+> uscita, semplicemente smontato dall'esterno. Il guardiano è utile finché
+> vive, non una garanzia.
+>
+> La parte affidabile è l'hook del paragrafo 4.9.6, che scatta a ogni apertura
+> di sessione e non richiede nessun processo attivo. Insieme danno: **apri e
+> sai subito se c'è lavoro; mentre lavori, se il guardiano è vivo ti sveglia.**
+> Quello che non si può promettere è "commissiono di notte e lo trovo fatto".
+
 \newpage
 
 # Capitolo 5 — Utilizzo
