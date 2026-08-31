@@ -63,6 +63,17 @@ class LLMError(RuntimeError):
     """Base class for every error raised by this module."""
 
 
+class MissingDependencyError(LLMError):
+    """The chosen provider's SDK is not installed.
+
+    A start-up failure, and a user's rather than the code's: switching
+    LLM_PROVIDER without reinstalling, or a virtual environment built from a
+    stale requirements.txt. It gets a type of its own so the entry point can
+    answer it with the one line that says what to do, the way a bad ``.env``
+    is answered -- a wall of stack frames naming an import would hide it.
+    """
+
+
 class LLMUnavailableError(LLMError):
     """The model could not be reached after exhausting all attempts."""
 
@@ -443,7 +454,15 @@ class GroqLanguageModel:
     ) -> None:
         if max_attempts < 1:
             raise ValueError("max_attempts must be at least 1")
-        import groq as groq_sdk
+        try:
+            import groq as groq_sdk
+        except ModuleNotFoundError as exc:  # pragma: no cover - trivial, tested
+            raise MissingDependencyError(
+                "LLM_PROVIDER is 'groq' but the groq package is not installed. "
+                "Install the dependencies with "
+                "'pip install -r requirements.txt' inside the virtual "
+                "environment the service runs from."
+            ) from exc
 
         self._groq_sdk = groq_sdk
         self._client = groq_sdk.AsyncGroq(api_key=api_key)

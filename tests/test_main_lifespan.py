@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import dataclasses
 import pathlib
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -253,3 +253,103 @@ async def test_the_tally_starts_empty_and_is_published(tmp_path, no_telegram):
     assert body["degraded_turns"] == 0
     assert body["last_degraded_reason"] is None
     assert body["seconds_since_degraded"] is None
+
+
+# --------------------------------------------------------------------------- #
+# Start-up failures the user can fix
+# --------------------------------------------------------------------------- #
+#
+# config.py exists so that a mistake in .env produces one sentence naming the
+# variable, at start-up, rather than a crash hours later. Building the
+# application had no such courtesy: switching LLM_PROVIDER without reinstalling
+# gave `ModuleNotFoundError: No module named 'groq'` and a stack trace, which
+# names the symptom and not the fix.
+
+
+def without_groq(monkeypatch):
+    """Make `import groq` fail the way an incomplete install does."""
+    import builtins
+
+    real = builtins.__import__
+
+    def fake(name, *args, **kwargs):
+        if name == "groq":
+            raise ModuleNotFoundError("No module named 'groq'")
+        return real(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake)
+
+
+async def test_a_missing_provider_package_names_the_fix(tmp_path, monkeypatch, no_telegram):
+    from core.llm import MissingDependencyError
+
+    without_groq(monkeypatch)
+
+    with pytest.raises(MissingDependencyError) as raised:
+        create_app(build_config(tmp_path))
+
+    message = str(raised.value)
+    assert "groq" in message
+    assert "requirements.txt" in message  # what to actually do about it
+
+
+@pytest.fixture
+def keep_the_log_handlers(monkeypatch):
+    """Stop main() from reconfiguring logging out from under caplog.
+
+    configure_logging() calls basicConfig(force=True), which drops every
+    handler including the one pytest installed to record what was said. The
+    message was being logged correctly all along; only the test could not see
+    it.
+    """
+    monkeypatch.setattr(main, "configure_logging", lambda: None)
+
+
+def test_the_entry_point_reports_it_without_a_traceback(
+    tmp_path, monkeypatch, caplog, keep_the_log_handlers
+):
+    """Exit 2, one line, no stack frames -- the same as a bad .env."""
+    from core.llm import MissingDependencyError
+
+    monkeypatch.setattr(main, "load_config", lambda: build_config(tmp_path))
+    monkeypatch.setattr(
+        main, "create_app", lambda _c: (_ for _ in ()).throw(MissingDependencyError("install it"))
+    )
+    served = MagicMock()
+    monkeypatch.setattr(main, "uvicorn", MagicMock(run=served))
+
+    with caplog.at_level("ERROR"):
+        code = main.main()
+
+    assert code == 2
+    assert any("install it" in r.message for r in caplog.records)
+    served.assert_not_called()
+
+
+def test_a_bad_configuration_is_still_reported_the_same_way(
+    tmp_path, monkeypatch, caplog, keep_the_log_handlers
+):
+    """The branch this one was added next to must keep working."""
+    from config import ConfigError
+
+    monkeypatch.setattr(
+        main,
+        "load_config",
+        lambda: (_ for _ in ()).throw(ConfigError("TELEGRAM_BOT_TOKEN missing")),
+    )
+
+    with caplog.at_level("ERROR"):
+        code = main.main()
+
+    assert code == 2
+    assert any("TELEGRAM_BOT_TOKEN" in r.message for r in caplog.records)
+
+
+def test_a_working_configuration_reaches_the_server(tmp_path, monkeypatch, no_telegram):
+    """So the guard cannot pass by refusing to start at all."""
+    monkeypatch.setattr(main, "load_config", lambda: build_config(tmp_path))
+    served = MagicMock()
+    monkeypatch.setattr(main, "uvicorn", MagicMock(run=served))
+
+    assert main.main() == 0
+    served.assert_called_once()

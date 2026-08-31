@@ -27,7 +27,7 @@ from fastapi import FastAPI, Response
 from adapters.telegram import TelegramAdapter
 from config import Config, ConfigError, load_config
 from core import version as version_info
-from core.llm import AnthropicLanguageModel, GroqLanguageModel
+from core.llm import AnthropicLanguageModel, GroqLanguageModel, MissingDependencyError
 from core.memory import SqliteConversationMemory
 from core.router import Router
 from core.tasks import TaskStore
@@ -232,16 +232,22 @@ def main() -> int:
         configuration is unusable.
     """
     configure_logging()
+    # Building the application is part of start-up, not of serving, so its
+    # failures belong here with the configuration's. Both are the user's to
+    # fix, and both get one line rather than a traceback: a wall of stack
+    # frames would only bury the sentence that says what to do.
     try:
         config = load_config()
+        app = create_app(config)
     except ConfigError as exc:
-        # No traceback here: a misconfigured .env is a user error, and a wall
-        # of stack frames would only hide the one line that matters.
         logger.error("configuration error: %s", exc)
+        return 2
+    except MissingDependencyError as exc:
+        logger.error("%s", exc)
         return 2
 
     uvicorn.run(
-        create_app(config),
+        app,
         host=HEALTH_HOST,
         port=HEALTH_PORT,
         log_config=None,  # keep the formatting set by configure_logging()

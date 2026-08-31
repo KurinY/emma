@@ -98,6 +98,24 @@ change will always be listed here.
 
 ### Fixed
 
+- **Stopping the Telegram adapter chained three steps**, so the first to raise
+  skipped the two after it and left the HTTP session and PTB's task queue
+  half-released on a process already on its way out. The same defect the
+  application lifespan carried, one level down — and likelier here: about one
+  connection in twenty to Telegram fails from this host, and shutdown is
+  exactly when one gets dropped. Neither `start()` nor `stop()` had a test,
+  which is how it survived; `adapters/telegram.py` is now at 100%.
+
+- **A missing provider package produced a traceback instead of a sentence.**
+  Switching `LLM_PROVIDER` to `groq` without reinstalling gave
+  `ModuleNotFoundError: No module named 'groq'` and a wall of stack frames,
+  which names the symptom rather than the fix. `config.py` exists precisely so
+  a user's mistake is answered with one actionable line, and building the
+  application had no such courtesy. It is now a `MissingDependencyError`
+  naming the variable, the package and the command, reported by the entry
+  point the same way a bad `.env` is: exit 2, no traceback.
+
+
 - **`scripts/backup-dev.ps1` reported failure on every successful run.** It
   checks robocopy's exit code correctly — `>= 8` means a file could not be
   copied — but never reset `$LASTEXITCODE`, and robocopy returns `1` precisely

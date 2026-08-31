@@ -285,6 +285,14 @@ class Router:
         Returns:
             The reply to send back.
         """
+        # One turn at a time, per channel. This method reads the history,
+        # spends seconds in the model, then writes back, and nothing holds a
+        # lock across that gap -- so two turns running at once on the same
+        # conversation would interleave their writes. It is safe today only
+        # because the Telegram adapter leaves PTB at max_concurrent_updates=1.
+        # A second channel, or that setting changed, needs a per-conversation
+        # lock here first. See REVISIONE.md, entry 21.
+        #
         # Losing the history costs context; refusing to answer costs the turn.
         # The store is a file on a disk that can fill up and a database that a
         # long backup can hold locked, and neither is a reason to leave someone
