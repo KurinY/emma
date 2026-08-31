@@ -150,19 +150,28 @@ comes back with the capability. Designed in `REVISIONE.md` entry 17.
 - [x] Poisoned history cleared, database backed up first so it stays reversible
 - [x] Tests: 13 new, 132 total; docs, `REVISIONE.md` 17.10, deployed and pushed
 
-**Commissioned, waiting on the user**
+**Commissioned, worked, closed**
 
-- [ ] #1 — EMMA reports which version of herself is running (a `VERSION` file
-      stamped at deploy: the server has no git checkout to read a commit from)
-- [ ] #2 — retry the send on `TimedOut`, and stop the typing indicator being
-      fatal. Roughly 1 connection in 20 to Telegram fails from this IPv6-only
-      host, and a failed send currently kills the turn in silence.
+- [x] #2 — the answer is no longer lost when Telegram drops a connection: the
+      typing indicator is harmless, the send is retried on transient failures,
+      and delivery is not all-or-nothing. Tests caught `BadRequest` inheriting
+      from `NetworkError`, which had permanent rejections being retried
+- [x] #1 — EMMA reports the commit she is running, `/health` carries it, and
+      `scripts/deploy.sh` stamps it as part of deploying rather than as a step
+      to remember. It refuses a dirty tree, failing tests, or an archive
+      carrying `.env` or `data/`
+- [x] Language boundary settled: English for what the model reads to decide,
+      Italian for what the user sees — EMMA quotes tool output verbatim
 
 **Open, not resolved**
 
-- [ ] A deploy on 31/08 at 13:34:58 cannot be traced to the command that made
-      it. The content was right and verified, but it reached production before
-      it was committed. Recorded rather than explained.
+- [x] A deploy on 31/08 at 13:34:58 could not be traced to the command that
+      made it. Not explained, but no longer possible: `scripts/deploy.sh` is
+      now the one way to deploy, it refuses an uncommitted tree, and it leaves
+      the commit stamped on the server.
+- [ ] Confirm closing job #1: the answer "sì, chiudi i lavori" was given on #2
+      and read as covering both. The queue keeps no timestamp for an answer, so
+      the order of events could not be checked.
 - [ ] `/root/emma-pre-*` on the server: four safety copies from one day, worth
       pruning once the work they protect is settled.
 

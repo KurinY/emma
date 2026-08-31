@@ -275,15 +275,54 @@ veleno ma anche la continuità). Ragionamento completo in `REVISIONE.md` 17.10.
 resta annullabile. Rimossi anche i due snapshot, che contenevano la stessa
 cronologia e l'avrebbero riportata indietro a un eventuale recupero.
 
+**Done (continued) — i due lavori commissionati, chiusi:**
+
+Il ciclo ha girato per intero e in entrambe le direzioni: l'utente ha risposto
+da Telegram, EMMA ha registrato, il guardiano mi ha svegliato
+(`work waiting - waking the session`), ho lavorato, e le chiusure sono tornate
+a lui per la stessa strada.
+
+**Lavoro #2 — la risposta non si perde più** (commit `1960d20`). L'indicatore
+"sta scrivendo" era la prima chiamata in uscita: un disturbo lì uccideva il
+turno *prima* di consultare il modello. Ora è innocuo. L'invio viene ritentato
+sui fallimenti transitori (3 tentativi, 1s poi 2s, la politica di `core/llm.py`)
+e la consegna non è più tutto-o-niente: se un pezzo di una risposta lunga si
+perde, gli altri partono. Se non arriva niente è un `ERROR` esplicito, non
+silenzio.
+
+> **Trappola trovata dai test:** in python-telegram-bot **`BadRequest` eredita
+> da `NetworkError`**, quindi `except (TimedOut, NetworkError)` — scritto per
+> dire "solo i transitori" — ritentava tre volte messaggi che Telegram rifiuterà
+> sempre. La clausola permanente ora viene prima, con il commento che spiega
+> perché l'ordine non è cosmetico.
+
+**Lavoro #1 — EMMA sa quale codice sta eseguendo** (commit `8e71d21`, `cfaa54e`).
+`core/version.py` preferisce il timbro scritto dal deploy, ripiega su git su un
+checkout, e **quando non sa lo dice** invece di inventare. `/health` espone
+`version`, `commit`, `built`; `main.py` non dichiara più una versione propria.
+
+**`scripts/deploy.sh`**, deciso con l'utente al posto della variante minimale:
+il timbro non è un passo da ricordare, è il deploy stesso a scriverlo. Rifiuta
+di partire se l'albero è sporco (il commit timbrato mentirebbe), se test o ruff
+falliscono, o se l'archivio contiene `.env` o `data/` — controllato due volte.
+Primo deploy vero passato di lì: **21 secondi, un comando**, e produzione e
+repository ora combaciano verificabilmente (`cfaa54e` da entrambe le parti).
+
+**Lingua uniformata** (commit `cfaa54e`): inglese ciò che il modello legge per
+decidere (nomi, descrizioni, argomenti), italiano ciò che arriva all'utente.
+Il confine non è dove sembra: EMMA **cita alla lettera** le stringhe dei tool —
+`ATTENDE UNA RISPOSTA DELL'UTENTE` è comparso parola per parola in chat — quindi
+tradurle metterebbe frammenti inglesi davanti a un utente italiano.
+
+**156 test verdi.**
+
 **Pending:**
 
-- [ ] **Lavoro #1** — EMMA sa dire quale versione di sé sta girando. Al
-      checkpoint 1, attende il consenso dell'utente sul piano (file `VERSION`
-      scritto al deploy, letto all'avvio, esposto da un tool e da `/health`;
-      serve perché sul server non c'è un checkout git da cui leggere il commit).
-- [ ] **Lavoro #2** — reinvio su `TimedOut` in `adapters/telegram.py`, e
-      indicatore "sta scrivendo" non fatale visto che è cosmetico. Motivato
-      dall'incidente e dal 5% di connessioni verso Telegram misurato fallire.
+- [ ] **Chiusura del lavoro #1 da confermare.** La risposta *"Sì, chiudi i
+      lavori"* era sul #2 e l'ho letta come valida per entrambi. È
+      un'interpretazione mia di un plurale: il database non conserva l'istante
+      della risposta, quindi non ho potuto verificare l'ordine dei fatti. Se
+      intendeva solo il #2, il #1 va riaperto.
 - [ ] **Tracciabilità:** alle 13:34:58 `tools/development.py` e
       `prompts/system_prompt.txt` sono finiti in produzione (contenuto corretto,
       impronte verificate) **senza che io sappia indicare il comando che l'ha
