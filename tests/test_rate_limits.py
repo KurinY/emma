@@ -99,10 +99,15 @@ def groq_reply() -> SimpleNamespace:
     )
 
 
+#: Everything that differs between the two providers, in one place. The clients
+#: are meant to behave identically, so the tests describe them identically.
 PROVIDERS = {
     "anthropic": (anthropic, "core.llm.anthropic.AsyncAnthropic", anthropic_reply),
     "groq": (groq, "groq.AsyncGroq", groq_reply),
 }
+
+#: Each SDK's base exception -- the only name in the taxonomy that is not shared.
+ROOT_ERRORS = {"anthropic": anthropic.AnthropicError, "groq": groq.GroqError}
 
 
 @pytest.fixture(params=sorted(PROVIDERS))
@@ -127,7 +132,13 @@ def client(request):
         else:
             model = GroqLanguageModel(api_key=FAKE_KEY, model=FAKE_MODEL)
 
-        yield SimpleNamespace(model=model, sdk=sdk, create=create, reply=reply)
+        yield SimpleNamespace(
+            model=model,
+            sdk=sdk,
+            create=create,
+            reply=reply,
+            root_error=ROOT_ERRORS[request.param],
+        )
 
 
 async def ask(client) -> object:
@@ -372,3 +383,28 @@ async def test_exhausting_the_retries_is_not_reported_as_a_quota(client):
         await ask(client)
 
     assert not isinstance(raised.value, LLMQuotaExceededError)
+
+
+async def test_an_sdk_error_outside_the_ladder_is_permanent(client):
+    """The catch-all: an SDK fault that is neither connection nor status.
+
+    A malformed request the SDK refuses to send, for instance. Retrying would
+    produce it again, so it fails at once -- and it must not be mistaken for a
+    quota, which is the branch immediately above it.
+    """
+    client.create.side_effect = client.root_error("the SDK refused to send this")
+
+    with pytest.raises(LLMUnavailableError) as raised:
+        await ask(client)
+
+    assert not isinstance(raised.value, LLMQuotaExceededError)
+    assert client.create.await_count == 1
+
+
+async def test_that_failure_is_logged_as_non_retryable(client, caplog):
+    client.create.side_effect = client.root_error("refused")
+
+    with caplog.at_level("ERROR"), pytest.raises(LLMUnavailableError):
+        await ask(client)
+
+    assert any("non-retryable error" in r.message for r in caplog.records)
