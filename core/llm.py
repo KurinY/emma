@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, TypeVar, runtime_checkable
 
 import anthropic
 
@@ -34,6 +35,8 @@ from core.retry import (
 )
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 #: A conversation message in Anthropic wire format: ``{"role": ..., "content": ...}``
 #: where ``content`` is either a string or a list of content blocks.  Using the
@@ -185,6 +188,134 @@ class LanguageModel(Protocol):
         ...
 
 
+class _RetryLadder:
+    """The ladder both clients climb, written once instead of twice.
+
+    The two SDKs are built to the same shape -- ``APIConnectionError``,
+    ``RateLimitError``, ``APIStatusError``, and a root error whose only
+    difference is its name -- so the code that tells a transient failure from a
+    permanent one does not need saying twice. It was said twice, and the two
+    copies had already drifted apart once: for a whole release the Groq client
+    ignored every tool declaration it was handed, because the feature was added
+    to one copy and not to the other. Nothing about that bug was visible in
+    either file on its own.
+
+    The order of the clauses is the substance. ``RateLimitError`` comes before
+    ``APIStatusError`` because it inherits from it, and treating a 429 as a
+    plain 4xx is exactly the mistake this ladder used to make -- the same shape
+    of mistake as ``BadRequest`` inheriting from ``NetworkError`` in the
+    Telegram adapter.
+    """
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        sdk: Any,
+        root_error: type[Exception],
+        max_attempts: int,
+        backoff_seconds: float,
+    ) -> None:
+        """Build the ladder for one provider.
+
+        Args:
+            name: The provider, capitalised, as it reaches the user.
+            sdk: Its SDK module, consulted only for exception types.
+            root_error: Its base exception, for anything the clauses miss.
+            max_attempts: How many attempts in total.
+            backoff_seconds: The pause before the second attempt.
+        """
+        self._name = name
+        self._slug = name.lower()
+        self._sdk = sdk
+        self._root_error = root_error
+        self._max_attempts = max_attempts
+        self._backoff_seconds = backoff_seconds
+
+    def _retrying(self, exc: Exception, attempt: int) -> None:
+        """Report a failure we are about to try again."""
+        logger.warning(
+            "%s call failed (attempt %d/%d): %s: %s",
+            self._slug,
+            attempt,
+            self._max_attempts,
+            type(exc).__name__,
+            exc,
+        )
+
+    async def run(self, call: Callable[[], Awaitable[_T]]) -> tuple[_T, int]:
+        """Make the call, retrying what is worth retrying.
+
+        Args:
+            call: The request, as a callable so it can be made again.
+
+        Returns:
+            The provider's own reply object, and the attempt it arrived on.
+            The caller logs the outcome, because the token counts live under
+            different names in each dialect.
+
+        Raises:
+            LLMQuotaExceededError: On a rate limit too long to wait out.
+            LLMUnavailableError: On a permanent failure, or once every attempt
+                has been spent.
+        """
+        last_error: Exception | None = None
+        for attempt in range(1, self._max_attempts + 1):
+            try:
+                return await call(), attempt
+            except self._sdk.APIConnectionError as exc:
+                # Network-level failure: transient, retry.
+                last_error = exc
+                self._retrying(exc, attempt)
+            except self._sdk.RateLimitError as exc:
+                # Before APIStatusError, which it inherits from.  Raises from
+                # inside when the wait asked for is longer than retrying could
+                # absorb; otherwise it is transient like any other failure.
+                _check_rate_limit(
+                    exc,
+                    provider=self._name,
+                    attempt=attempt,
+                    max_attempts=self._max_attempts,
+                    base=self._backoff_seconds,
+                )
+                last_error = exc
+            except self._sdk.APIStatusError as exc:
+                if exc.status_code < 500:
+                    # 4xx: wrong key, bad request.  Retrying cannot help.
+                    logger.error(
+                        "%s call rejected permanently (attempt %d/%d): HTTP %s %s: %s",
+                        self._slug,
+                        attempt,
+                        self._max_attempts,
+                        exc.status_code,
+                        type(exc).__name__,
+                        exc,
+                    )
+                    raise LLMUnavailableError(
+                        f"the {self._name} API returned a permanent error: {exc}"
+                    ) from exc
+                # Server-side error: transient, retry.
+                last_error = exc
+                self._retrying(exc, attempt)
+            except self._root_error as exc:
+                # Any other SDK error, neither connection- nor status-based.
+                logger.error(
+                    "%s call failed with non-retryable error (attempt %d/%d): %s: %s",
+                    self._slug,
+                    attempt,
+                    self._max_attempts,
+                    type(exc).__name__,
+                    exc,
+                )
+                raise LLMUnavailableError(
+                    f"the {self._name} API raised a non-retryable error: {exc}"
+                ) from exc
+
+            await pause_before_retry(attempt, self._max_attempts, self._backoff_seconds)
+
+        raise _exhausted(self._name, self._max_attempts, last_error) from last_error
+
+
 class AnthropicLanguageModel:
     """:class:`LanguageModel` backed by the official Anthropic SDK.
 
@@ -229,8 +360,13 @@ class AnthropicLanguageModel:
         )
         self._model = model
         self._max_tokens = max_tokens
-        self._max_attempts = max_attempts
-        self._backoff_seconds = backoff_seconds
+        self._retry = _RetryLadder(
+            name="Anthropic",
+            sdk=anthropic,
+            root_error=anthropic.AnthropicError,
+            max_attempts=max_attempts,
+            backoff_seconds=backoff_seconds,
+        )
 
     async def complete(
         self,
@@ -261,85 +397,16 @@ class AnthropicLanguageModel:
         if tools:
             payload["tools"] = tools
 
-        last_error: Exception | None = None
-        for attempt in range(1, self._max_attempts + 1):
-            try:
-                raw = await self._client.messages.create(**payload)
-            except anthropic.APIConnectionError as exc:
-                # Network-level failure: transient, retry.
-                last_error = exc
-                logger.warning(
-                    "anthropic call failed (attempt %d/%d): %s: %s",
-                    attempt,
-                    self._max_attempts,
-                    type(exc).__name__,
-                    exc,
-                )
-                await pause_before_retry(attempt, self._max_attempts, self._backoff_seconds)
-                continue
-            except anthropic.RateLimitError as exc:
-                # Before APIStatusError, which it inherits from: a 429 is
-                # neither the transient 5xx nor the permanent 4xx below, and
-                # falling through to either one gets it wrong.
-                _check_rate_limit(
-                    exc,
-                    provider="Anthropic",
-                    attempt=attempt,
-                    max_attempts=self._max_attempts,
-                    base=self._backoff_seconds,
-                )
-                last_error = exc
-                await pause_before_retry(attempt, self._max_attempts, self._backoff_seconds)
-                continue
-            except anthropic.APIStatusError as exc:
-                if exc.status_code >= 500:
-                    # Server-side error: transient, retry.
-                    last_error = exc
-                    logger.warning(
-                        "anthropic call failed (attempt %d/%d): %s: %s",
-                        attempt,
-                        self._max_attempts,
-                        type(exc).__name__,
-                        exc,
-                    )
-                    await pause_before_retry(attempt, self._max_attempts, self._backoff_seconds)
-                    continue
-                # 4xx: permanent failure (wrong key, bad request, etc.).
-                # Retrying cannot help; surface it immediately.
-                logger.error(
-                    "anthropic call rejected permanently (attempt %d/%d): HTTP %s %s: %s",
-                    attempt,
-                    self._max_attempts,
-                    exc.status_code,
-                    type(exc).__name__,
-                    exc,
-                )
-                raise LLMUnavailableError(
-                    f"the Anthropic API returned a permanent error: {exc}"
-                ) from exc
-            except anthropic.AnthropicError as exc:
-                # Any other SDK error that is not connection- or status-based.
-                logger.error(
-                    "anthropic call failed with non-retryable error (attempt %d/%d): %s: %s",
-                    attempt,
-                    self._max_attempts,
-                    type(exc).__name__,
-                    exc,
-                )
-                raise LLMUnavailableError(
-                    f"the Anthropic API raised a non-retryable error: {exc}"
-                ) from exc
+        raw, attempt = await self._retry.run(lambda: self._client.messages.create(**payload))
 
-            logger.info(
-                "anthropic call ok (attempt %d): stop_reason=%s in=%d out=%d",
-                attempt,
-                raw.stop_reason,
-                raw.usage.input_tokens,
-                raw.usage.output_tokens,
-            )
-            return _to_response(raw)
-
-        raise _exhausted("Anthropic", self._max_attempts, last_error) from last_error
+        logger.info(
+            "anthropic call ok (attempt %d): stop_reason=%s in=%d out=%d",
+            attempt,
+            raw.stop_reason,
+            raw.usage.input_tokens,
+            raw.usage.output_tokens,
+        )
+        return _to_response(raw)
 
     async def aclose(self) -> None:
         """Release the underlying HTTP connection pool."""
@@ -382,8 +449,13 @@ class GroqLanguageModel:
         self._client = groq_sdk.AsyncGroq(api_key=api_key)
         self._model = model
         self._max_tokens = max_tokens
-        self._max_attempts = max_attempts
-        self._backoff_seconds = backoff_seconds
+        self._retry = _RetryLadder(
+            name="Groq",
+            sdk=groq_sdk,
+            root_error=groq_sdk.GroqError,
+            max_attempts=max_attempts,
+            backoff_seconds=backoff_seconds,
+        )
 
     async def complete(
         self,
@@ -401,72 +473,21 @@ class GroqLanguageModel:
         if tools:
             payload["tools"] = _to_groq_tools(tools)
 
-        last_error: Exception | None = None
-        for attempt in range(1, self._max_attempts + 1):
-            try:
-                raw = await self._client.chat.completions.create(**payload)
-            except self._groq_sdk.APIConnectionError as exc:
-                last_error = exc
-                logger.warning(
-                    "groq call failed (attempt %d/%d): %s: %s",
-                    attempt,
-                    self._max_attempts,
-                    type(exc).__name__,
-                    exc,
-                )
-                await pause_before_retry(attempt, self._max_attempts, self._backoff_seconds)
-                continue
-            except self._groq_sdk.RateLimitError as exc:
-                # Before APIStatusError, which it inherits from: a 429 is
-                # neither the transient 5xx nor the permanent 4xx below, and
-                # falling through to either one gets it wrong.
-                _check_rate_limit(
-                    exc,
-                    provider="Groq",
-                    attempt=attempt,
-                    max_attempts=self._max_attempts,
-                    base=self._backoff_seconds,
-                )
-                last_error = exc
-                await pause_before_retry(attempt, self._max_attempts, self._backoff_seconds)
-                continue
-            except self._groq_sdk.APIStatusError as exc:
-                if exc.status_code >= 500:
-                    last_error = exc
-                    logger.warning(
-                        "groq call failed (attempt %d/%d): %s: %s",
-                        attempt,
-                        self._max_attempts,
-                        type(exc).__name__,
-                        exc,
-                    )
-                    await pause_before_retry(attempt, self._max_attempts, self._backoff_seconds)
-                    continue
-                logger.error(
-                    "groq call rejected permanently (attempt %d/%d): HTTP %s %s: %s",
-                    attempt,
-                    self._max_attempts,
-                    exc.status_code,
-                    type(exc).__name__,
-                    exc,
-                )
-                raise LLMUnavailableError(
-                    f"the Groq API returned a permanent error: {exc}"
-                ) from exc
+        raw, attempt = await self._retry.run(
+            lambda: self._client.chat.completions.create(**payload)
+        )
 
-            choice = raw.choices[0]
-            response = _from_groq_message(choice.message, choice.finish_reason)
-            logger.info(
-                "groq call ok (attempt %d): stop_reason=%s in=%d out=%d tools=%d",
-                attempt,
-                response.stop_reason,
-                raw.usage.prompt_tokens,
-                raw.usage.completion_tokens,
-                len(response.tool_uses),
-            )
-            return response
-
-        raise _exhausted("Groq", self._max_attempts, last_error) from last_error
+        choice = raw.choices[0]
+        response = _from_groq_message(choice.message, choice.finish_reason)
+        logger.info(
+            "groq call ok (attempt %d): stop_reason=%s in=%d out=%d tools=%d",
+            attempt,
+            response.stop_reason,
+            raw.usage.prompt_tokens,
+            raw.usage.completion_tokens,
+            len(response.tool_uses),
+        )
+        return response
 
     async def aclose(self) -> None:
         """Release the underlying HTTP connection pool."""

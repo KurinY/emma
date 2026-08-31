@@ -1429,6 +1429,49 @@ risponde.
 
 **Verdetto: la C conviene, ma è una modifica al deploy — dimmi tu.**
 
+## 20. Spezzare `core/llm.py` (valutata e scartata, 31 agosto 2026)
+
+Il piano di revisione diceva "spezzare `core/llm.py`", che era a 758 righe
+contro le 480 del modulo successivo. Ho fatto invece un'altra cosa, e spiego
+perche'.
+
+**Cosa ho fatto.** La duplicazione, non la dimensione, era il difetto vero. I
+due client avevano due scale di `except` strutturalmente identiche, ed e'
+esattamente la deriva che aveva gia' prodotto un bug reale: per un'intera
+release il client Groq ha ignorato ogni dichiarazione di tool, perche' la
+funzione era stata aggiunta a una copia e non all'altra. Guardando i due file
+separatamente quel bug non si vedeva. I due SDK hanno una tassonomia
+**identica** — `APIConnectionError`, `RateLimitError`, `APIStatusError`, e una
+radice che cambia solo di nome — quindi la scala ora e' scritta una volta sola
+(`_RetryLadder`) e parametrizzata. I due `complete()` sono passati da 107 e 81
+righe a meno di 40 ciascuno, e non resta una sola clausola `except` specifica
+per provider. I formati di log sono rimasti identici, verificati riga per riga.
+
+**Cosa non ho fatto, e perche'.** Restava da spezzare il file. Il candidato
+ovvio erano le tre funzioni di traduzione del dialetto Groq: 149 righe, pure,
+con un file di test dedicato (`tests/test_llm_groq_tools.py`) — cioe' tutti i
+segni di una preoccupazione gia' separata nei fatti.
+
+Non lo e'. Quelle funzioni dipendono dal vocabolario (`Message`, `TextBlock`,
+`ToolUseBlock`, `LLMResponse`, `_text_of`) che vive in `core/llm.py`, e
+`core/llm.py` dovrebbe importare loro: **import circolare**. La cucitura non e'
+dove sembrava. Per esistere richiederebbe un terzo modulo:
+
+| Modulo | Contenuto | Righe stimate |
+| --- | --- | --- |
+| `core/messages.py` | `Message`, i tipi di blocco, `LLMResponse`, `_text_of` | ~90 |
+| `core/groq_dialect.py` | le tre funzioni di traduzione | ~160 |
+| `core/llm.py` | protocollo, errori, `_RetryLadder`, i due client | ~530 |
+
+E' piu' pulito. Ma e' un cambio di confini fra moduli — la regola 2 — deciso
+alla vigilia di una pubblicazione, per un guadagno che a quel punto e' solo la
+dimensione del file: la duplicazione era gia' sparita, nessuna funzione supera
+le 40 righe tranne le traduzioni pure, la copertura e' al 94%. Un lettore che
+insegue `LLMResponse` aprirebbe tre file invece di uno.
+
+**Verdetto: la deduplicazione conviene ed e' fatta. La divisione in tre moduli
+e' corretta ma non urgente — chiedimela quando non e' la sera di un rilascio.**
+
 ## Riepilogo dei verdetti
 
 | # | Voce | Verdetto |
@@ -1453,6 +1496,7 @@ risponde.
 | 16.4 | Snapshot periodici | fase futura, se la finestra di perdita risultasse troppo larga |
 | 17 | EMMA committente del proprio sviluppo | **da fare come v0.3**: tre tool, coda nel database, checkpoint 1/3/4/5 |
 | 18 | Memoria di fatti persistenti | fase futura |
+| 20 | Spezzare `core/llm.py` in tre moduli | **fatta la deduplicazione**; la divisione e' corretta ma non urgente |
 | 19 | Collegare qualcosa a `/health` | **la C conviene** (controllo dentro `backup.sh`), ma tocca il deploy: decidi tu |
 
 La voce 5 è stata implementata nella v0.1.x (retry solo sugli errori
