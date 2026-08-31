@@ -1605,6 +1605,52 @@ verso una directory finta prima di puntarla a `/opt/emma`.
 
 **Verdetto: la C conviene, ma va fatta da sveglio e provata a vuoto prima.**
 
+## 23. Accorgersi di un lavoro commissionato a sessione aperta (1 settembre 2026)
+
+L'utente ha inserito un lavoro nella coda mentre la sessione era aperta, e non
+me ne sono accorto. Non e' stata una distrazione: **non esisteva un meccanismo
+che potesse dirmelo.**
+
+C'era un solo hook, `SessionStart`, che esegue `scripts/queue-brief.sh`
+all'apertura della sessione e mai piu'. Una sessione che dura ore non ha modo
+di sapere che nel frattempo la coda e' cambiata. I due lavori #5 e #6 di ieri
+sera li ho scoperti per caso, perche' stavo abbandonando il #4 e ho eseguito
+`ssh emma-queue list` per un'altra ragione.
+
+**I tre casi, e cosa copre ciascuno:**
+
+| Quando arriva il lavoro | Prima | Adesso |
+| --- | --- | --- |
+| Prima che la sessione si apra | `SessionStart` | uguale |
+| A sessione aperta, e poi l'utente scrive | **niente** | `UserPromptSubmit` |
+| A sessione aperta, e l'utente non scrive | **niente** | watcher in background, a richiesta |
+
+**Cosa ho fatto.** `queue-brief.sh` prende ora il nome dell'evento come
+argomento (Claude Code scarta l'output il cui `hookEventName` non corrisponde
+all'hook che lo ha eseguito) e il timeout di connessione come secondo. I due
+chiamanti ne vogliono uno diverso: all'avvio dieci secondi spesi per sapere
+sono gratis, su ogni messaggio sono dieci secondi di attesa dell'utente, quindi
+quel chiamante passa quattro. Misurato: 600-700 ms a caldo, 1,5 s a freddo,
+1,4 s quando il server e' irraggiungibile — e in quel caso esce 0 senza
+stampare niente, cosi' il messaggio parte comunque.
+
+Il nome dell'evento finisce dentro JSON costruito a mano, quindi viene
+validato: un apice li' produrrebbe output che Claude Code non sa leggere, e
+fallirebbe **in silenzio** — il modo peggiore in cui puo' fallire una notifica.
+
+**La terza riga resta scoperta di default, ed e' onesto dirlo.** Se il lavoro
+arriva e l'utente non scrive nulla, nessun hook scatta: gli hook sono reazioni
+a eventi della sessione, e "non succede niente" non e' un evento.
+`scripts/watch-tasks.sh` esiste per questo — interroga la coda ed esce appena
+c'e' lavoro — ma va avviato esplicitamente in background dalla sessione, muore
+con essa, e ieri sera si e' fermato da solo dopo due cicli. E' best-effort per
+costruzione (voce 17.8: dietro non c'e' nessun servizio).
+
+**Verdetto: fatto il secondo caso, che e' quello che si e' verificato. Il terzo
+resta a richiesta.** Renderlo affidabile vorrebbe dire un servizio che sopravvive
+alla sessione, cioe' esattamente l'infrastruttura che questo progetto ha scelto
+di non avere.
+
 ## Riepilogo dei verdetti
 
 | # | Voce | Verdetto |
@@ -1629,6 +1675,7 @@ verso una directory finta prima di puntarla a `/opt/emma`.
 | 16.4 | Snapshot periodici | fase futura, se la finestra di perdita risultasse troppo larga |
 | 17 | EMMA committente del proprio sviluppo | **da fare come v0.3**: tre tool, coda nel database, checkpoint 1/3/4/5 |
 | 18 | Memoria di fatti persistenti | fase futura |
+| 23 | Accorgersi di un lavoro a sessione aperta | **fatto**: hook `UserPromptSubmit`; il caso senza messaggio resta a richiesta |
 | 22 | Il deploy sovrascrive e non sincronizza | **la C** (`rsync --delete`): un modulo cancellato resta importabile in produzione |
 | 21 | Lock per conversazione nel router | non ora; **primo passo del satellite vocale**, prima del secondo canale |
 | 20 | Spezzare `core/llm.py` in tre moduli | **no**: 407 righe di codice su 798, il resto e' documentazione. Fatti deduplicazione e riordino; rivalutare al terzo provider |
