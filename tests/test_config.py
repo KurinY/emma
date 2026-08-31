@@ -193,3 +193,45 @@ def test_an_absolute_path_is_taken_as_given(tmp_path):
     config = load_config(env_file=write_env(tmp_path, body))
 
     assert config.memory_db_path == elsewhere
+
+
+def test_a_personality_file_in_the_wrong_encoding_says_so(tmp_path):
+    """Saving it from a Windows editor as Latin-1 is a real way to get here.
+
+    Without this the failure is a UnicodeDecodeError naming a byte offset,
+    which tells the user nothing about which file or what to do with it.
+    """
+    prompt = tmp_path / "prompt.txt"
+    prompt.write_bytes("Sei EMMA, l'assistente di casa. Perché no?".encode("latin-1"))
+    body = MINIMAL + f"\nSYSTEM_PROMPT_PATH={prompt}\n"
+
+    # Caught when the process starts, not on the first message hours later:
+    # that is the whole reason the prompt is validated in load_config().
+    with pytest.raises(ConfigError) as raised:
+        load_config(env_file=write_env(tmp_path, body))
+
+    assert "SYSTEM_PROMPT_PATH" in str(raised.value)
+    assert "UTF-8" in str(raised.value)
+
+
+def test_a_valid_personality_file_is_read_as_written(tmp_path):
+    """The branch above must not be reachable by refusing every file."""
+    prompt = tmp_path / "prompt.txt"
+    prompt.write_text("Sei EMMA. Perché sì.", encoding="utf-8")
+    body = MINIMAL + f"\nSYSTEM_PROMPT_PATH={prompt}\n"
+
+    config = load_config(env_file=write_env(tmp_path, body))
+
+    assert config.read_system_prompt() == "Sei EMMA. Perché sì."
+
+
+def test_choosing_anthropic_reads_its_key_and_leaves_groq_optional(tmp_path):
+    """Switching provider is one line in .env, so both sides need covering."""
+    body = MINIMAL.replace("LLM_PROVIDER=groq", "LLM_PROVIDER=anthropic")
+    body = body.replace("GROQ_API_KEY=gsk_test", "ANTHROPIC_API_KEY=sk-ant-test")
+
+    config = load_config(env_file=write_env(tmp_path, body))
+
+    assert config.llm_provider == "anthropic"
+    assert config.anthropic_api_key == "sk-ant-test"
+    assert config.groq_api_key == ""
