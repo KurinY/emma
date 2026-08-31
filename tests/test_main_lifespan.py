@@ -1,0 +1,183 @@
+"""Tests for wiring the application together and taking it apart again.
+
+`main.py` is the composition root, and until now the only module with no tests
+of its own -- which is awkward, because a fault here does not degrade a reply,
+it decides whether the process runs at all.
+
+Both cases guarded below were real defects. Start-up used to open the two
+databases *before* entering the try block, so a Telegram failure - a bad token,
+a network that is not there yet - left their connections and write-ahead logs
+behind on a process that was already on its way out. And shutdown ran the four
+steps in sequence, so the first one to raise stranded the three after it.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import pathlib
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+import main
+from config import Config
+from core.memory import SqliteConversationMemory
+from main import create_app
+
+
+def build_config(tmp_path: pathlib.Path) -> Config:
+    prompt = tmp_path / "prompt.txt"
+    prompt.write_text("Sei EMMA.", encoding="utf-8")
+    return Config(
+        llm_provider="groq",
+        anthropic_api_key="",
+        anthropic_model="claude-test",
+        groq_api_key="gsk_test",
+        groq_model="test-model",
+        telegram_bot_token="123:AA",
+        telegram_allowed_user_id=1,
+        max_history_messages=20,
+        memory_db_path=tmp_path / "data" / "emma.db",
+        system_prompt_path=prompt,
+        backup_dir=tmp_path / "backup",
+        backup_keep=14,
+    )
+
+
+@pytest.fixture
+def no_telegram():
+    """Keep the adapter from touching the network while the app is built."""
+    with patch("main.TelegramAdapter") as adapter:
+        instance = adapter.return_value
+        instance.start = AsyncMock()
+        instance.stop = AsyncMock()
+        yield instance
+
+
+async def run_lifespan(app, *, expect_failure: bool = False) -> None:
+    """Enter and leave the application's lifespan once."""
+    manager = app.router.lifespan_context(app)
+    if expect_failure:
+        with pytest.raises(RuntimeError):
+            await manager.__aenter__()
+        return
+    await manager.__aenter__()
+    await manager.__aexit__(None, None, None)
+
+
+async def test_the_application_starts_and_stops_cleanly(tmp_path, no_telegram):
+    app = create_app(build_config(tmp_path))
+
+    await run_lifespan(app)
+
+    no_telegram.start.assert_awaited_once()
+    no_telegram.stop.assert_awaited_once()
+
+
+async def test_the_database_is_created_on_start_up(tmp_path, no_telegram):
+    config = build_config(tmp_path)
+    app = create_app(config)
+
+    await run_lifespan(app)
+
+    assert config.memory_db_path.exists()
+
+
+@pytest.fixture
+def watched_close():
+    """Watch ``close`` being called without preventing it from happening.
+
+    Replacing it outright leaves the real aiosqlite connection open, and its
+    background thread then keeps the test session alive after the assertion has
+    passed -- a test that leaks the very resource it exists to prove is
+    released. ``autospec`` keeps the descriptor, so ``self`` still arrives and
+    the real method still runs.
+    """
+    real = SqliteConversationMemory.close
+    with patch.object(
+        main.SqliteConversationMemory, "close", autospec=True, side_effect=real
+    ) as spy:
+        yield spy
+
+
+async def test_a_failed_start_up_closes_what_it_had_opened(tmp_path, no_telegram, watched_close):
+    """The defect: the databases stayed open when Telegram failed to start."""
+    no_telegram.start.side_effect = RuntimeError("no token")
+    app = create_app(build_config(tmp_path))
+
+    await run_lifespan(app, expect_failure=True)
+
+    watched_close.assert_awaited_once()
+
+
+async def test_a_failed_start_up_does_not_stop_what_never_started(tmp_path, no_telegram):
+    no_telegram.start.side_effect = RuntimeError("no token")
+    app = create_app(build_config(tmp_path))
+
+    await run_lifespan(app, expect_failure=True)
+
+    no_telegram.stop.assert_not_awaited()
+
+
+async def test_one_failing_shutdown_step_does_not_strand_the_others(
+    tmp_path, no_telegram, watched_close
+):
+    """The defect: the first raise skipped every step after it."""
+    no_telegram.stop.side_effect = RuntimeError("stuck")
+    app = create_app(build_config(tmp_path))
+
+    await run_lifespan(app)
+
+    watched_close.assert_awaited_once()
+
+
+async def test_a_failing_shutdown_is_reported_not_swallowed(tmp_path, no_telegram, caplog):
+    no_telegram.stop.side_effect = RuntimeError("stuck")
+    app = create_app(build_config(tmp_path))
+
+    with caplog.at_level("ERROR"):
+        await run_lifespan(app)
+
+    assert any("failed to shut down" in r.message for r in caplog.records)
+
+
+async def test_health_reports_the_model_and_the_running_commit(tmp_path, no_telegram):
+    from fastapi.testclient import TestClient
+
+    config = build_config(tmp_path)
+    app = create_app(config)
+
+    with TestClient(app) as client:
+        body = client.get("/health").json()
+
+    assert body["status"] == "ok"
+    assert body["model"] == config.groq_model
+    assert body["provider"] == "groq"
+    # Present even when unknown, so a caller never has to guess why it is absent.
+    assert set(body) >= {"version", "commit", "built", "uptime_seconds"}
+
+
+async def test_the_router_gets_the_tools_and_the_context_provider(tmp_path, no_telegram):
+    """The wiring the assistant's usefulness depends on, asserted once."""
+    with patch("main.Router") as router:
+        create_app(build_config(tmp_path))
+
+    kwargs = router.call_args.kwargs
+    assert {t.name for t in kwargs["tools"]} == {
+        "request_development",
+        "work_status",
+        "answer_question",
+        "running_version",
+    }
+    assert len(kwargs["context_providers"]) == 1
+
+
+async def test_the_provider_choice_follows_the_configuration(tmp_path, no_telegram):
+    config = dataclasses.replace(
+        build_config(tmp_path), llm_provider="anthropic", anthropic_api_key="sk-x"
+    )
+
+    with patch("main.AnthropicLanguageModel") as anthropic_client:
+        create_app(config)
+
+    anthropic_client.assert_called_once()

@@ -19,7 +19,7 @@ import contextlib
 import logging
 import sys
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 
 import uvicorn
 from fastapi import FastAPI
@@ -110,7 +110,14 @@ def create_app(config: Config) -> FastAPI:
 
     @contextlib.asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        """Start the Telegram adapter with the server and stop it with it."""
+        """Start the Telegram adapter with the server and stop it with it.
+
+        Both halves are written to survive a component misbehaving. A start-up
+        that fails partway unwinds exactly what it managed to open, and a
+        shutdown step that raises does not take the steps after it with it --
+        either would otherwise leave SQLite connections and their write-ahead
+        logs behind on a process that is on its way out.
+        """
         logger.info(
             "starting emma (provider=%s, model=%s, history=%d messages, db=%s)",
             config.llm_provider,
@@ -118,19 +125,44 @@ def create_app(config: Config) -> FastAPI:
             config.max_history_messages,
             config.memory_db_path,
         )
-        await memory.open()
-        # After the memory: it is the one that creates the directory and runs
-        # the integrity check on the shared file.
-        await tasks.open()
-        await telegram.start()
+
+        # What has actually been started, with how to stop it. A list rather
+        # than an assumption: an unwind must undo what happened, not what the
+        # happy path would have done.
+        started: list[tuple[str, Callable[[], Awaitable[None]]]] = [
+            # The model client exists from construction and is always safe to
+            # close; registering it first means it is released last, after
+            # everything that might still be using it has stopped.
+            ("model client", llm.aclose),
+        ]
+
+        async def shut_down() -> None:
+            """Stop everything that was started, newest first."""
+            for name, stop in reversed(started):
+                try:
+                    await stop()
+                except Exception:  # one stubborn resource must not strand the rest
+                    logger.exception("failed to shut down the %s", name)
+
+        try:
+            await memory.open()
+            started.append(("conversation memory", memory.close))
+            # After the memory: it is the one that creates the directory and
+            # runs the integrity check on the shared file.
+            await tasks.open()
+            started.append(("task queue", tasks.close))
+            await telegram.start()
+            started.append(("telegram adapter", telegram.stop))
+        except Exception:
+            logger.exception("start-up failed; closing what had already opened")
+            await shut_down()
+            raise
+
         try:
             yield
         finally:
             logger.info("shutting down")
-            await telegram.stop()
-            await llm.aclose()
-            await tasks.close()
-            await memory.close()
+            await shut_down()
 
     app = FastAPI(
         title="EMMA",
