@@ -26,11 +26,13 @@ from fastapi import FastAPI
 
 from adapters.telegram import TelegramAdapter
 from config import Config, ConfigError, load_config
+from core import version as version_info
 from core.llm import AnthropicLanguageModel, GroqLanguageModel
 from core.memory import SqliteConversationMemory
 from core.router import Router
 from core.tasks import TaskStore
 from tools.development import DevelopmentContext, development_tools
+from tools.introspection import introspection_tools
 
 logger = logging.getLogger("emma")
 
@@ -93,7 +95,7 @@ def create_app(config: Config) -> FastAPI:
         llm=llm,
         memory=memory,
         system_prompt=system_prompt,
-        tools=development_tools(tasks),
+        tools=(*development_tools(tasks), *introspection_tools()),
         # The queue's shape goes in front of the model on every turn rather
         # than waiting to be asked for: whether a tool gets called is the
         # model's decision, and it repeated a stale answer four times in ten
@@ -132,7 +134,9 @@ def create_app(config: Config) -> FastAPI:
 
     app = FastAPI(
         title="EMMA",
-        version="0.2.0",
+        # One source of truth: a version repeated in two files is a version
+        # that will disagree with itself.
+        version=version_info.VERSION,
         summary="Self-hosted personal assistant - text-only v1",
         lifespan=lifespan,
         docs_url=None,
@@ -143,11 +147,14 @@ def create_app(config: Config) -> FastAPI:
 
     @app.get("/health")
     async def health() -> dict[str, object]:
-        """Report that the process is alive and which model it is using."""
+        """Report that the process is alive, and exactly which code is running."""
         return {
             "status": "ok",
             "model": active_model,
             "provider": config.llm_provider,
+            # The commit, not just the version: it is the only field that
+            # answers "is this server running what the repository says?".
+            **version_info.summary(),
             "uptime_seconds": round(time.monotonic() - started_at, 1),
         }
 

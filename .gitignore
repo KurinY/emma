@@ -38,6 +38,11 @@ data/
 # richer lock file would leave two sources of truth free to disagree.
 uv.lock
 
+# Written by scripts/deploy.sh into the installation it created. It describes
+# one deployment - which commit went out, and when - not the source, so
+# committing it would put a stale fact under version control.
+VERSION
+
 # --- Editors and OS ---------------------------------------------------------
 .vscode/
 .idea/
