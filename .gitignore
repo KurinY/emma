@@ -33,6 +33,11 @@ data/
 *.zip
 *.log
 
+# uv writes this when it installs; requirements.txt already pins every version
+# exactly, and is what both the server and the guide use. Committing a second,
+# richer lock file would leave two sources of truth free to disagree.
+uv.lock
+
 # --- Editors and OS ---------------------------------------------------------
 .vscode/
 .idea/
