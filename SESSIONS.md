@@ -73,19 +73,31 @@ rigenerato (41 pagine; front matter e footer erano ancora fermi a `v0.2.0`).
 - `ec90095` record the observability work in the changelog
 - `ca8050d` test the self-repair paths that only run on the worst day
 
+**Done — i due punti delegati ("fai come pensi sia meglio"):**
+- **`core/llm.py`**: deduplicate le due scale di `except`, ora in `_RetryLadder`
+  scritta una volta e parametrizzata sul modulo SDK. I due `complete()` da 107 e
+  81 righe scendono sotto le 40, nessuna clausola per-provider sopravvive, e i
+  formati di log sono rimasti identici (verificati riga per riga). **Non** ho
+  spezzato il file: la cucitura ovvia — 149 righe di dialetto Groq con un file di
+  test dedicato — non e' una cucitura, perche' quelle funzioni dipendono dal
+  vocabolario che vive li' (import circolare). Servirebbe un terzo modulo:
+  `REVISIONE.md` voce 20, con lo schema pronto.
+- **`/health`**: implementata la proposta C. `scripts/backup.sh` lo interroga
+  prima di scrivere il manifest; l'esito va nel journal e nel `MANIFEST.txt`, e
+  non fa mai fallire il backup. Provato contro un server vero nei tre stati; il
+  terzo ha trovato un difetto nel codice appena scritto (`curl` stampa gia' `000`
+  da solo, il fallback ne aggiungeva un secondo).
+- **`.gitattributes`** aggiunto: sviluppo su Windows + deploy con `git pull` su
+  Linux e' l'assetto in cui un CRLF entra in uno script che non puo'
+  sopravvivergli. Uno shebang con `
+` fallisce senza dire perche'.
+
 **Pending — richiede una tua decisione:**
 - [ ] **Push su GitHub** e **deploy in produzione**: entrambi sono gate tuoi, non
       li ho fatti.
-- [ ] **`core/llm.py` e' a 758 righe**, l'unico modulo fuori scala (il successivo
-      e' 480). Il piano concordato diceva "spezzarlo", ma misurandolo penso che
-      il vero difetto sia un altro: le due scale di `except` dei due provider
-      sono strutturalmente identiche e duplicate, ed e' esattamente la deriva che
-      ha gia' prodotto un bug reale (Groq che ignorava i tool). Spezzare il file
-      non toglie la duplicazione; togliere la duplicazione tocca la strada che
-      percorre ogni messaggio. Non ho fatto ne' l'una ne' l'altra da solo alla
-      vigilia di una pubblicazione: vedi il riepilogo di fine sessione.
-- [ ] `REVISIONE.md` voce 19: nessuno interroga `/health`. Proposta C (controllo
-      dentro `backup.sh`, che gira gia' alle 03:30) — tocca il deploy, decidi tu.
+- [ ] ~~`core/llm.py`~~ — risolto sopra; resta la divisione in tre moduli,
+      corretta ma non urgente (`REVISIONE.md` voce 20)
+- [ ] ~~voce 19, `/health`~~ — implementata la C.
 - [ ] Coda di produzione: lavoro #3 in `waiting_user` (marca della luce), lavoro
       #4 duplicato di #3, da abbandonare se confermi.
 
