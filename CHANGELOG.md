@@ -24,6 +24,27 @@ change will always be listed here.
   does not degrade the turn and that the state is read once per turn however
   many tool rounds it takes.
 
+### Changed
+
+- **`/health` can now report ill health.** It used to answer `"status": "ok"`
+  unconditionally — a liveness check wearing the wrong name, since nothing it
+  could ever say would tell you something was wrong. It now reads the
+  conversation store through the same interface a turn uses (much cheaper than
+  `PRAGMA integrity_check`, and it exercises the path that actually matters),
+  publishes the tally below, and answers `503 degraded` when it cannot, so a
+  checker that understands nothing but HTTP still gets the verdict right.
+  Nothing polls it yet — that touches the deploy layout, so it is a proposal in
+  `REVISIONE.md`, entry 19, rather than a change made here.
+
+- **A degraded turn now says which of the four ways it degraded.** The reasons
+  — `quota_exhausted`, `model_unreachable`, `empty_answer`, `tool_loop_ceiling`
+  — had four log formats and two severities between them, so "how often does
+  this happen, and which one is it?" could not be answered without reading
+  every line by hand. They now share one line, `turn degraded (<reason>)`, the
+  reason travels on the response, and a running tally reaches `/health`: turns,
+  degraded turns, the last reason and how long ago it was. Three faults in one
+  evening were noticed by the user before they were noticed by the service.
+
 ### Fixed
 
 - **An unforeseen fault produced silence.** The Telegram error handler logged
