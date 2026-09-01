@@ -5,6 +5,62 @@ for the next session. Newest entry at the top.
 
 ---
 
+## 2026-09-01 — Session 8
+
+**Status:** Completa. v0.3.0 rilasciata e taggata.
+
+**Context:** Continuation di Session 7. Nata da una segnalazione dell'utente:
+*"ho inserito un task ma tu non te ne sei reso conto"*.
+
+**Il buco, e i tre livelli:** esisteva un solo hook, `SessionStart`, che
+guardava la coda all'apertura e mai piu'. Una sessione lunga ore non poteva
+sapere che nel frattempo era arrivato un lavoro. Ora:
+- `UserPromptSubmit` -> `queue-brief.sh` (lavoro arrivato, e poi l'utente scrive)
+- `Stop` -> `watch-tasks.sh` con `asyncRewake` (lavoro arrivato, nessuno scrive)
+- cache locale come **ripiego**, non come sorgente: prima il server, sempre.
+
+**Verificato sul campo**, non simulato: il watcher ha vegliato 80 minuti in
+silenzio sul lavoro gia' annunciato, e ha svegliato la sessione una volta sola
+quando e' arrivato un lavoro nuovo.
+
+**Cinque difetti, tutti trovati provando o dall'utente:**
+- `break` dentro un `case`: `case` non e' un ciclo, quindi usciva dal `while` e
+  il watcher moriva dopo cinque secondi in silenzio.
+- Codice di uscita 2 invertito fra i due modi: con `asyncRewake` avrebbe
+  svegliato la sessione esattamente quando non c'era niente da dire.
+- Nessuna memoria degli id annunciati: il riarmo del `Stop` avrebbe risvegliato
+  all'infinito per lo stesso lavoro.
+- `pipefail` rendeva **coda vuota** e **server irraggiungibile**
+  indistinguibili: con la coda appena svuotata, lo script ha annunciato
+  "5 lavori" letti dalla cache.
+- **L'attivita' pianificata faceva lampeggiare una finestra** ogni 5 minuti.
+  `-Hidden` nasconde l'attivita' nell'elenco, non la finestra. Nessun comando
+  che potessi eseguire l'avrebbe rilevato: l'utente e' stato l'unico strumento
+  di misura. Disattivata, non eliminata; la guida ora spiega perche' non
+  installarla.
+
+**CHANGELOG:** l'utente ha notato *"the next planned step is v0.3"* dentro una
+sezione che descriveva la v0.3 al passato. Ho attribuito la cosa a un fetch
+vecchio: **sbagliato**. `[Unreleased]` aveva due intestazioni di ogni tipo,
+perche' inserivo le voci nuove sotto la prima serie senza vedere la seconda.
+La sua lettura era giusta, la mia spiegazione no. Ora `[0.3.0] - 2026-09-01`,
+una intestazione per tipo, 29 voci spostate e contate (29 entrate, 29 uscite).
+
+**Tag creati** (non ne esisteva nessuno): `v0.1.0` -> `f4e6fbd`,
+`v0.2.0` -> `c64177b` retroattivi, `v0.3.0` -> `5a9a8e5`. I link di confronto
+del CHANGELOG puntavano a riferimenti inesistenti da sempre.
+
+**Non fatto, su istruzione esplicita:** il lavoro #8 (tool meteo per Modena).
+Resta in coda; l'hook continuera' ad annunciarlo.
+
+**Commit:**
+- `748afe3` keep the queue watcher running for as long as the session is
+- `18cbdb4` prefer the live queue, keep the cache for when it is not there
+- `4ce564a` stop recommending a scheduled task that flashes a window
+- `5a9a8e5` close 0.3.0 in the changelog, and merge the headings it had twice
+
+---
+
 ## 2026-09-01 — Session 7
 
 **Status:** Completa, pushata e in produzione (`15d2531`)
