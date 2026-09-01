@@ -32,6 +32,7 @@ from core.memory import SqliteConversationMemory
 from core.router import Router
 from core.tasks import TaskStore
 from tools.development import DevelopmentContext, development_tools
+from tools.facts import FactsContext, FactStore, facts_tools
 from tools.introspection import introspection_tools
 
 logger = logging.getLogger("emma")
@@ -97,16 +98,21 @@ def create_app(config: Config) -> FastAPI:
     # integrity check, the snapshots and the consistent backup already built
     # around that file cover it too.  See REVISIONE.md, entry 17.
     tasks = TaskStore(db_path=config.memory_db_path)
+    # The memory module, in the two lines that install it: this one and its
+    # place in the router below.  Removing the feature means removing them --
+    # core/ never learns what a fact is, exactly as it never learned what a
+    # development job is.  See REVISIONE.md, entry 18.
+    facts = FactStore(db_path=config.memory_db_path)
     router = Router(
         llm=llm,
         memory=memory,
         system_prompt=system_prompt,
-        tools=(*development_tools(tasks), *introspection_tools()),
+        tools=(*development_tools(tasks), *introspection_tools(), *facts_tools(facts)),
         # The queue's shape goes in front of the model on every turn rather
         # than waiting to be asked for: whether a tool gets called is the
         # model's decision, and it repeated a stale answer four times in ten
         # rather than looking. See REVISIONE.md, entry 17.
-        context_providers=(DevelopmentContext(tasks),),
+        context_providers=(DevelopmentContext(tasks), FactsContext(facts)),
     )
     telegram = TelegramAdapter(
         token=config.telegram_bot_token,
@@ -173,6 +179,8 @@ def create_app(config: Config) -> FastAPI:
             # runs the integrity check on the shared file.
             await tasks.open()
             started.append(("task queue", tasks.close))
+            await facts.open()
+            started.append(("fact store", facts.close))
             await telegram.start()
             started.append(("telegram adapter", telegram.stop))
         except Exception:

@@ -10,7 +10,36 @@ change will always be listed here.
 
 ## [Unreleased]
 
-Nothing yet.
+> Built and tested, **not deployed**. Present in the tree and wired into
+> `main.py`, but no version running anywhere has it.
+
+### Added
+
+- **Facts that do not expire** (`tools/facts/`, the memory module of
+  `REVISIONE.md` entry 18). `core/memory.py` forgets by age — twenty messages,
+  then `DELETE` — so "mia figlia si chiama Sara" dies at the same rate as "che
+  ore sono". This is the other half: things the user asks to be kept, which
+  survive indefinitely and are put in front of the model on every turn.
+
+  Two tools, `remember_fact` and `forget_fact`. Deliberately no `recall`:
+  everything active is already in the context, so a third declaration would be
+  paid for on every turn — including the ones where the user only said "ciao" —
+  to answer a question the model can already see the answer to.
+
+  Facts are written only when asked. Deciding by itself what is worth keeping
+  is the same class of risk as an automatic summary, where the plausible wrong
+  answer is the one nobody checks. Forgetting stamps the row rather than
+  deleting it, as with an abandoned job and a quarantined database.
+
+  **What it costs, measured against production traffic rather than estimated:**
+  the two declarations are a fixed 303 tokens a turn, and each fact about 15.
+  An exchange goes from ~2,360 input tokens to ~2,660 with nothing remembered
+  and ~3,360 at the ceiling of fifty facts — about 59 exchanges a day against
+  Groq's 200,000-token cap, where today there are 84. The ceiling is fifty and
+  not the hundred first written, because a hundred is unreachable: the
+  four-thousand-character limit on injected context binds first, at around
+  eighty, and a limit that promises more than it delivers is worse than a
+  smaller honest one.
 
 ## [0.3.0] - 2026-09-01
 

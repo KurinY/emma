@@ -171,8 +171,13 @@ async def test_the_router_gets_the_tools_and_the_context_provider(tmp_path, no_t
         "answer_question",
         "abandon_development",
         "running_version",
+        # The memory module. Asserted by name rather than by count so that
+        # installing or removing it has to be a deliberate edit here: a tool
+        # silently absent is the failure that cost a whole release once.
+        "remember_fact",
+        "forget_fact",
     }
-    assert len(kwargs["context_providers"]) == 1
+    assert len(kwargs["context_providers"]) == 2
 
 
 async def test_the_provider_choice_follows_the_configuration(tmp_path, no_telegram):
@@ -406,3 +411,35 @@ async def test_a_working_store_does_not_excuse_a_deaf_bot(tmp_path, no_telegram)
 
     assert body["store"] == "ok"
     assert body["status"] == "degraded"
+
+
+async def test_the_fact_store_is_opened_and_closed_with_the_rest(tmp_path, no_telegram):
+    """A third store now shares the database; it has to join the unwind too.
+
+    Left out of the list, its connection and write-ahead log would be the one
+    thing not released on the way out -- the defect this file exists to guard
+    against, arriving through a new door.
+    """
+    from tools.facts import FactStore
+
+    with patch.object(
+        main.FactStore, "close", autospec=True, side_effect=FactStore.close
+    ) as closed:
+        app = create_app(build_config(tmp_path))
+        await run_lifespan(app)
+
+    closed.assert_awaited_once()
+
+
+async def test_a_failure_after_the_facts_are_open_still_closes_them(tmp_path, no_telegram):
+    from tools.facts import FactStore
+
+    no_telegram.start.side_effect = RuntimeError("no token")
+
+    with patch.object(
+        main.FactStore, "close", autospec=True, side_effect=FactStore.close
+    ) as closed:
+        app = create_app(build_config(tmp_path))
+        await run_lifespan(app, expect_failure=True)
+
+    closed.assert_awaited_once()
