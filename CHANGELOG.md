@@ -10,6 +10,10 @@ change will always be listed here.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.0] - 2026-09-01
+
 ### Added
 
 - **The version stamp now says when it has stopped being true.** `/health`
@@ -57,6 +61,23 @@ change will always be listed here.
 - `tests/test_router_context.py`: 13 tests, including that a broken provider
   does not degrade the turn and that the state is read once per turn however
   many tool rounds it takes.
+
+
+- **Database integrity and self-healing.** `SqliteConversationMemory.open()`
+  runs `PRAGMA integrity_check` before handing the database to the application.
+  On failure the damaged file is moved aside — never deleted — and the newest
+  snapshot that passes the same check is restored in its place; if none
+  survives, the store starts empty. Every step is logged at `ERROR` level.
+  Recovery is triggered *only* by verified corruption, never by a failed
+  start-up from any other cause.
+- Snapshots are written with `VACUUM INTO` on every successful open and clean
+  shutdown, verified before they replace the previous generation. Two
+  generations are kept (`emma.db.snapshot`, `.snapshot.prev`).
+- `PRAGMA journal_mode=WAL`, which survives an abrupt kill far better than the
+  default rollback journal.
+- `tests/test_memory_sqlite.py`: 8 further tests covering recovery from a
+  corrupt file, fallback to the older snapshot, quarantine instead of deletion,
+  the no-snapshot case, and a stale write-ahead log.
 
 ### Changed
 
@@ -123,6 +144,35 @@ change will always be listed here.
   reason travels on the response, and a running tally reaches `/health`: turns,
   degraded turns, the last reason and how long ago it was. Three faults in one
   evening were noticed by the user before they were noticed by the service.
+
+
+- `prompts/system_prompt.txt`: describes the new tools and when to use them —
+  never on her own initiative, either the user is explicit or she asks first.
+  It also no longer claims she forgets past conversations, which stopped being
+  true in 0.2.0.
+- `CLAUDE.md` rule 8: report and ask between the stages of a piece of work
+  rather than chaining them. Full permissions on the machine waive the prompt
+  that nobody can click, not the asking itself.
+
+- **The backup now always happens.** `scripts/backup.sh` prefers the second
+  disk and falls back to `/var/backups/emma` on the system disk when there is
+  none, instead of aborting. It says which it used, and why, in the log and in
+  `MANIFEST.txt`; an archive beside the original protects against mistakes but
+  not against that disk failing, so the compromise is stated rather than
+  implied. An explicitly configured `BACKUP_DIR` is honoured as given and only
+  falls back if it turns out to be unwritable.
+- The default destination is used only when it genuinely is a separate
+  filesystem, not merely when the directory exists. Writing into an unmounted
+  `/mnt/backup` would appear to work while filling the system disk, and the
+  archives would then vanish under the mount point the day the disk was
+  attached, still occupying space nothing could account for.
+- `emma-backup.service` no longer declares `RequiresMountsFor=/mnt/backup`,
+  which turned a missing backup disk into a failed job — the opposite of the
+  guarantee above. It creates the fallback directory with the right ownership
+  via `ExecStartPre`, since `/var/backups` is root-owned and the service user
+  could not create a subdirectory there on a fresh machine.
+- `BACKUP_DIR` is now commented out in `.env.example`: leaving it unset lets the
+  script choose, which is the better default.
 
 ### Fixed
 
@@ -284,55 +334,6 @@ change will always be listed here.
 - The design, and what was deliberately left out of it, is entry 17 of
   `REVISIONE.md`.
 
-### Changed
-
-- `prompts/system_prompt.txt`: describes the new tools and when to use them —
-  never on her own initiative, either the user is explicit or she asks first.
-  It also no longer claims she forgets past conversations, which stopped being
-  true in 0.2.0.
-- `CLAUDE.md` rule 8: report and ask between the stages of a piece of work
-  rather than chaining them. Full permissions on the machine waive the prompt
-  that nobody can click, not the asking itself.
-
-- **The backup now always happens.** `scripts/backup.sh` prefers the second
-  disk and falls back to `/var/backups/emma` on the system disk when there is
-  none, instead of aborting. It says which it used, and why, in the log and in
-  `MANIFEST.txt`; an archive beside the original protects against mistakes but
-  not against that disk failing, so the compromise is stated rather than
-  implied. An explicitly configured `BACKUP_DIR` is honoured as given and only
-  falls back if it turns out to be unwritable.
-- The default destination is used only when it genuinely is a separate
-  filesystem, not merely when the directory exists. Writing into an unmounted
-  `/mnt/backup` would appear to work while filling the system disk, and the
-  archives would then vanish under the mount point the day the disk was
-  attached, still occupying space nothing could account for.
-- `emma-backup.service` no longer declares `RequiresMountsFor=/mnt/backup`,
-  which turned a missing backup disk into a failed job — the opposite of the
-  guarantee above. It creates the fallback directory with the right ownership
-  via `ExecStartPre`, since `/var/backups` is root-owned and the service user
-  could not create a subdirectory there on a fresh machine.
-- `BACKUP_DIR` is now commented out in `.env.example`: leaving it unset lets the
-  script choose, which is the better default.
-
-### Added
-
-- **Database integrity and self-healing.** `SqliteConversationMemory.open()`
-  runs `PRAGMA integrity_check` before handing the database to the application.
-  On failure the damaged file is moved aside — never deleted — and the newest
-  snapshot that passes the same check is restored in its place; if none
-  survives, the store starts empty. Every step is logged at `ERROR` level.
-  Recovery is triggered *only* by verified corruption, never by a failed
-  start-up from any other cause.
-- Snapshots are written with `VACUUM INTO` on every successful open and clean
-  shutdown, verified before they replace the previous generation. Two
-  generations are kept (`emma.db.snapshot`, `.snapshot.prev`).
-- `PRAGMA journal_mode=WAL`, which survives an abrupt kill far better than the
-  default rollback journal.
-- `tests/test_memory_sqlite.py`: 8 further tests covering recovery from a
-  corrupt file, fallback to the older snapshot, quarantine instead of deletion,
-  the no-snapshot case, and a stale write-ahead log.
-
-### Fixed
 
 - **`GroqLanguageModel` accepted a `tools` argument and ignored it**, so on the
   provider actually used in production the model was never even offered the
@@ -396,8 +397,6 @@ change will always be listed here.
   `MANIFEST.txt` states whether the history is included and why not when it
   isn't. Requires the `sqlite3` package, which is documented in chapter 1 of
   the guide; without it the backup still succeeds, minus the history.
-
-The next planned step is v0.3: real tools behind the existing `Tool` protocol.
 
 ## [0.2.0] - 2026-08-31
 
@@ -491,6 +490,7 @@ answer and back.
 - One channel (Telegram) and one user.
 - No tools, no voice, no persistence — see the roadmap in the README.
 
-[Unreleased]: https://github.com/KurinY/emma/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/KurinY/emma/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/KurinY/emma/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/KurinY/emma/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/KurinY/emma/releases/tag/v0.1.0
