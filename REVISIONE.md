@@ -1646,8 +1646,44 @@ c'e' lavoro — ma va avviato esplicitamente in background dalla sessione, muore
 con essa, e ieri sera si e' fermato da solo dopo due cicli. E' best-effort per
 costruzione (voce 17.8: dietro non c'e' nessun servizio).
 
-**Verdetto: fatto il secondo caso, che e' quello che si e' verificato. Il terzo
-resta a richiesta.** Renderlo affidabile vorrebbe dire un servizio che sopravvive
+### Completata il 1 settembre 2026: anche il terzo caso
+
+Su richiesta dell'utente ("imposta il riavvio automatico del watcher, e rendilo
+persistente"). Claude Code ha il meccanismo esatto: un hook `asyncRewake` gira
+in background e sveglia il modello quando il comando **esce con 2**. Non
+serviva un servizio: serviva rendere `watch-tasks.sh` adatto a essere quel
+comando. Tre ostacoli, due dei quali erano trappole vere.
+
+**Il codice 2 significava l'opposto.** Nel modo normale vuol dire "ho rinunciato
+dopo sei ore". Collegato cosi', avrebbe svegliato la sessione precisamente
+quando non c'era niente da dire. Il modo hook li inverte e lo documenta.
+
+**Si sarebbe avvitato.** Il `Stop` riarma il watcher a ogni turno; con lo stesso
+lavoro ancora in coda avrebbe svegliato, riavviato, risvegliato — per sempre,
+se quel lavoro aspetta una risposta. Ora ricorda gli id annunciati, e un
+lucchetto (con il pid verificato, non creduto) rende il riarmo idempotente.
+
+**Il terzo era mio:** `break` dentro un `case`, che non e' un ciclo, quindi
+usciva dal `while` e il watcher moriva dopo cinque secondi in silenzio. Trovato
+da un test che chiedeva "e' ancora vivo?", non dalla rilettura.
+
+**La cache locale, e un errore di progetto che ho corretto da solo.** Avevo
+proposto che l'hook *leggesse* una cache invece di interrogare il server:
+istantaneo. E' sbagliato — una cache vecchia di cinque minuti puo' non
+contenere il lavoro appena inserito, cioe' il difetto che tutto questo esiste
+per chiudere. L'ordine giusto e' l'inverso: **prima il server, la cache solo se
+non risponde**, dichiarando quanto e' vecchio il dato. Un'attivita' pianificata
+ogni 5 minuti la tiene tiepida anche a sessione chiusa.
+
+Anche li' un difetto trovato provando: sotto `set -o pipefail`, `grep` che non
+trova nulla esce 1, quindi una **coda vuota** era indistinguibile da un server
+irraggiungibile — e con la coda appena svuotata lo script annunciava "5 lavori"
+letti dalla cache. Esattamente il contrario del suo scopo.
+
+**Verdetto: fatti tutti e tre i casi.** Il terzo resta legato alla sessione —
+muore con essa, e fra la sveglia e il riarmo c'e' una finestra di pochi
+secondi. Renderlo garantito vorrebbe dire un servizio che sopravvive alla
+sessione: l'infrastruttura che questo progetto ha scelto di non avere. Renderlo affidabile vorrebbe dire un servizio che sopravvive
 alla sessione, cioe' esattamente l'infrastruttura che questo progetto ha scelto
 di non avere.
 
@@ -1675,7 +1711,7 @@ di non avere.
 | 16.4 | Snapshot periodici | fase futura, se la finestra di perdita risultasse troppo larga |
 | 17 | EMMA committente del proprio sviluppo | **da fare come v0.3**: tre tool, coda nel database, checkpoint 1/3/4/5 |
 | 18 | Memoria di fatti persistenti | fase futura |
-| 23 | Accorgersi di un lavoro a sessione aperta | **fatto**: hook `UserPromptSubmit`; il caso senza messaggio resta a richiesta |
+| 23 | Accorgersi di un lavoro a sessione aperta | **fatti tutti e tre i casi**: `UserPromptSubmit`, `Stop` con `asyncRewake`, cache locale |
 | 22 | Il deploy sovrascrive e non sincronizza | **la C** (`rsync --delete`): un modulo cancellato resta importabile in produzione |
 | 21 | Lock per conversazione nel router | non ora; **primo passo del satellite vocale**, prima del secondo canale |
 | 20 | Spezzare `core/llm.py` in tre moduli | **no**: 407 righe di codice su 798, il resto e' documentazione. Fatti deduplicazione e riordino; rivalutare al terzo provider |

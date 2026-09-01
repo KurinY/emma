@@ -1431,11 +1431,21 @@ il controllo — un lavoro aperto così si ferma comunque al primo checkpoint e 
 chiede *"procedo?"* prima che venga costruito qualcosa. I lavori che nascono da
 te continuano ad arrivare da EMMA (paragrafo 5.6).
 
-### 4.9.6 L'hook che ti avvisa all'apertura
+### 4.9.6 I tre momenti in cui puoi accorgerti di un lavoro
 
-Dietro la coda non c'è un servizio: se nessuna sessione è aperta, i lavori si
-accumulano e nessuno se ne accorge. `scripts/queue-brief.sh` chiude questa
-falla — eseguito come hook `SessionStart`, dice quanti lavori attendono.
+Dietro la coda non c'è un servizio: se nessuno guarda, i lavori si accumulano.
+Fino alla 0.3.0 esisteva un solo hook, `SessionStart`, che guardava
+**all'apertura della sessione e mai più** — così un lavoro commissionato mentre
+la sessione era già aperta non veniva notato da nessuno. È successo davvero il
+1 settembre 2026.
+
+I momenti sono tre, e servono meccanismi diversi:
+
+| Quando arriva il lavoro | Cosa lo nota |
+| --- | --- |
+| Prima che la sessione si apra | hook `SessionStart` → `queue-brief.sh` |
+| A sessione aperta, e poi scrivi | hook `UserPromptSubmit` → `queue-brief.sh` |
+| A sessione aperta, e non scrivi | hook `Stop` → `watch-tasks.sh` in `asyncRewake` |
 
 In `.claude/settings.local.json` del posto da cui lavori:
 
@@ -1443,18 +1453,60 @@ In `.claude/settings.local.json` del posto da cui lavori:
 {
   "hooks": {
     "SessionStart": [
+      { "hooks": [
+        { "type": "command",
+          "command": "bash '<percorso>/emma/scripts/queue-brief.sh' SessionStart 10",
+          "timeout": 20 },
+        { "type": "command",
+          "command": "EMMA_WAKE_ON_WORK=1 POLL_SECONDS=120 bash '<percorso>/emma/scripts/watch-tasks.sh'",
+          "asyncRewake": true, "timeout": 21600 }
+      ] }
+    ],
+    "UserPromptSubmit": [
       { "hooks": [ { "type": "command",
-        "command": "bash '<percorso>/emma/scripts/queue-brief.sh'",
-        "timeout": 20 } ] }
+        "command": "bash '<percorso>/emma/scripts/queue-brief.sh' UserPromptSubmit 4",
+        "timeout": 15 } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command",
+        "command": "EMMA_WAKE_ON_WORK=1 POLL_SECONDS=120 bash '<percorso>/emma/scripts/watch-tasks.sh'",
+        "asyncRewake": true, "timeout": 21600 } ] }
     ]
   }
 }
 ```
 
+Il nome dell'evento è un argomento perché Claude Code **scarta** l'output il cui
+`hookEventName` non corrisponde all'hook che l'ha prodotto. Il timeout di
+connessione è il secondo: all'apertura dieci secondi spesi per sapere sono
+gratis, su ogni messaggio sono dieci secondi in cui aspetti.
+
 Riporta **solo il numero**, non il testo delle richieste: leggerle costerebbe
 contesto in ogni sessione, comprese quelle in cui non verranno toccate. Se la
-coda è vuota, o il server è irraggiungibile, non stampa niente ed esce con
-successo — una sessione non deve fallire l'avvio perché una macchina è spenta.
+coda è vuota, o il server è irraggiungibile e non c'è cache, non stampa niente
+ed esce con successo — una sessione non deve fallire l'avvio, né un messaggio
+restare bloccato, perché una macchina è spenta.
+
+**La cache locale, e perché è solo una rete di sicurezza.** Ogni interrogazione
+riuscita scrive lo stato in `~/.claude/emma-queue-state`. Se in seguito il
+server non risponde, quel numero viene riportato dicendo esplicitamente che è
+vecchio e di quanto: *"(il server non risponde; dato di 4 minuti fa)"*.
+
+L'ordine è deliberatamente l'opposto di quello che sembra ovvio: **prima il
+server, la cache solo se fallisce.** Leggere prima la cache renderebbe l'hook
+istantaneo, ma una cache vecchia anche di pochi minuti può non contenere il
+lavoro appena inserito — cioè esattamente il difetto che tutto questo esiste
+per chiudere. La freschezza è la funzione; la cache compra robustezza senza
+spenderne.
+
+Un'attività pianificata la tiene tiepida anche quando nessuna sessione è
+aperta, così una sessione che parte mentre il server è giù sa comunque
+qualcosa:
+
+```powershell
+# ogni 5 minuti; rimuovibile con Unregister-ScheduledTask
+Get-ScheduledTask -TaskName 'EMMA queue cache'
+```
 
 ### 4.9.5 L'attesa che non costa
 
@@ -1469,11 +1521,28 @@ scripts/watch-tasks.sh                       # ogni 5 minuti, per 6 ore
 POLL_SECONDS=60 scripts/watch-tasks.sh       # più reattivo
 ```
 
-> **Non contarci come se fosse un servizio.** Un processo in background non è
-> garantito sopravvivere a lungo alla sessione che l'ha avviato: è stato
-> osservato fermarsi dopo due giri regolari, senza errori e senza codice di
-> uscita, semplicemente smontato dall'esterno. Il guardiano è utile finché
-> vive, non una garanzia.
+**Dalla 0.3.0 non va più avviato a mano.** Gli hook `SessionStart` e `Stop` lo
+lanciano con `asyncRewake`, che è il meccanismo con cui Claude Code sveglia il
+modello quando un comando in background **esce con codice 2**. Il `Stop` lo
+riarma dopo ogni turno, quindi resta attivo per tutta la durata della sessione.
+
+Due dettagli senza i quali si romperebbe:
+
+- **In modo hook i codici di uscita sono invertiti.** Normalmente `2` significa
+  *"ho rinunciato, non c'è niente"*; con `asyncRewake` significherebbe
+  *"svegliati"*, cioè il contrario esatto. Con `EMMA_WAKE_ON_WORK=1`, `2` vuol
+  dire lavoro nuovo e **tutto il resto esce 0 in silenzio** — una sveglia
+  afferma che qualcosa aspetta, e non va spesa su un guasto di rete.
+- **Ricorda cosa ha già annunciato.** Senza memoria, il `Stop` lo riavvierebbe,
+  troverebbe lo stesso lavoro ancora in coda, e sveglierebbe di nuovo — per
+  sempre, se quel lavoro aspetta una tua risposta. Un lucchetto rende inoltre
+  il riarmo idempotente: chiedere un guardiano mentre uno sta già guardando non
+  fa niente.
+
+> **Resta comunque legato alla sessione.** Muore con essa, e se un lavoro arriva
+> nei pochi secondi fra la sveglia e il riarmo lo trova al giro successivo.
+> Renderlo davvero garantito vorrebbe dire un servizio che sopravvive alla
+> sessione: l'infrastruttura che questo progetto ha scelto di non avere.
 >
 > La parte affidabile è l'hook del paragrafo 4.9.6, che scatta a ogni apertura
 > di sessione e non richiede nessun processo attivo. Insieme danno: **apri e
