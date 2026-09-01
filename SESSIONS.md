@@ -5,6 +5,54 @@ for the next session. Newest entry at the top.
 
 ---
 
+## 2026-09-01 — Session 9
+
+**Status:** Completa. Modulo memoria in produzione (`95c277b`), verificato dal vivo.
+
+**Context:** *"Vorrei che ci prendessimo un momento per capire come implementare
+la memoria su emma. Le altre repo simili come hanno fatto?"* — poi costruzione,
+prova e messa in produzione.
+
+**La ricerca, prima di scrivere codice.** Tre famiglie: estrazione+aggiornamento
+con un LLM (mem0), grafo temporale (Zep/Graphiti), memoria dentro il runtime
+dell'agente (Letta). Un paper del 2026 conferma indipendentemente la scelta gia'
+fatta nella voce 18 di scartare il riassunto: *"fidelity before structure"*, i
+chunk verbatim battono gli artefatti estratti.
+
+**La decisione strutturale:** quella letteratura risolve un problema di
+**recupero** — quali fra migliaia di ricordi servono ora — che nasce da molti
+utenti e storia illimitata. EMMA ha un utente. Sotto ~150 fatti conviene
+iniettarli tutti, e niente puo' essere recuperato male se niente viene
+recuperato. L'estrazione stile mem0 le dimezzerebbe la giornata: 42 scambi
+contro 84.
+
+**Costruito:** `tools/facts/` — due tool (`remember_fact`, `forget_fact`), un
+`FactsContext`, una tabella nello stesso file SQLite. Niente `recall`: e' gia'
+tutto nel contesto. Installato e disinstallabile con due righe in `main.py`.
+
+**Le due correzioni venute dalla misura:**
+1. Avevo detto all'utente +15%. Le **dichiarazioni costano 303 token a turno**,
+   pagati anche a vuoto: si parte da +13% con zero fatti. La stima aveva contato
+   i fatti e dimenticato gli strumenti.
+2. `MAX_ACTIVE_FACTS` era 100 ma il tetto sui caratteri ne fa entrare ~80:
+   sarebbero stati salvati, contati e mai visti. Portato a **50**.
+
+**Verifica in due tempi, come chiesto dall'utente:**
+- I **357 test preesistenti girati intatti prima di collegare qualsiasi cosa**:
+  tutti verdi. Dopo il collegamento ne e' fallito uno solo, quello che asserisce
+  l'insieme dei tool — il test che fa il suo mestiere.
+- Sul database di produzione dopo il deploy: tabella `facts` creata,
+  `PRAGMA integrity_check` = ok, **20 messaggi di conversazione intatti**.
+- Dal vivo contro il modello vero: registra, e dopo un riavvio simulato con
+  conversazione vuota risponde *"Si chiama Sara."*
+
+**Numeri:** 408 test (erano 357), modulo nuovo al 100%, costo ~64 scambi/giorno
+con trenta fatti contro 84 senza memoria.
+
+**Commit:** `6f00e1a` il modulo, `95c277b` la documentazione.
+
+---
+
 ## 2026-09-01 — Session 8
 
 **Status:** Completa. v0.3.0 rilasciata e taggata.
