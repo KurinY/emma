@@ -851,7 +851,8 @@ stato deliberatamente escluso, è la voce 17 di `REVISIONE.md`.
 passaggio si ferma in attesa di una tua risposta. Lo `stage` registra cosa è
 *fatto*; la nota ti chiede il permesso per il passo successivo.
 
-`tools/development.py` contiene i quattro strumenti che EMMA può chiamare:
+`tools/development.py` contiene quattro dei sei strumenti che EMMA può
+chiamare:
 
 | Strumento | Quando lo usa |
 | --- | --- |
@@ -859,6 +860,24 @@ passaggio si ferma in attesa di una tua risposta. Lo `stage` registra cosa è
 | `work_status` | chiedi a che punto sono i lavori |
 | `answer_question` | rispondi a una domanda in sospeso |
 | `abandon_development` | vuoi togliere di mezzo un lavoro che non ti serve più |
+
+Gli altri due stanno in `tools/facts/`, il modulo della memoria persistente:
+
+| Strumento | Quando lo usa |
+| --- | --- |
+| `remember_fact` | le chiedi di ricordare qualcosa che non deve scadere |
+| `forget_fact` | le chiedi di dimenticarlo |
+
+**Non c'è un terzo strumento per rileggere i fatti**, ed è deliberato: sono già
+tutti davanti al modello a ogni turno, quindi uno strumento per andarli a
+prendere risponderebbe a una domanda di cui vede già la risposta — e ogni
+dichiarazione si paga a ogni messaggio, compresi quelli in cui hai scritto solo
+"ciao". Le due dichiarazioni di questo modulo costano ~303 token a turno.
+
+Il modulo si installa e si disinstalla con **due righe in `main.py`**: quella
+che costruisce `FactStore` e quella che passa i tool e il fornitore di contesto
+al router. `core/` non sa cosa sia un fatto, esattamente come non sa cosa sia un
+lavoro di sviluppo.
 
 **Abbandonare non cancella.** La riga resta nel database, marcata `abandoned` e
 con il motivo che hai dato: un lavoro tolto per sbaglio è ancora leggibile, e
@@ -1580,6 +1599,29 @@ contesto ("e domani?" dopo aver chiesto del meteo funziona). La memoria copre gl
 ultimi `MAX_HISTORY_MESSAGES` messaggi — con il default di 20, circa dieci scambi
 — e **dalla v0.2 sopravvive ai riavvii**: dopo un `systemctl restart` o un riavvio
 della macchina la conversazione riparte da dove l'avevi lasciata.
+
+**Ma quella finestra dimentica per anzianità**, e l'anzianità è il criterio
+sbagliato per certe cose: *"mia figlia si chiama Sara"* scade esattamente alla
+stessa velocità di *"che ore sono"*. Dopo una decina di scambi non è "sbiadito",
+è cancellato dal database.
+
+Per questo esistono i **fatti**. Se le dici *"ricorda che il wifi di casa è
+X"*, EMMA lo registra a parte e non scade mai: lo saprà fra un mese, dopo
+qualsiasi riavvio. Funziona **solo se glielo chiedi** — *"ricorda che"*,
+*"segnati che"*, *"non dimenticare che"* — perché decidere da sola cosa merita
+di essere ricordato è la stessa classe di rischio del riassunto automatico:
+sbaglia in modo plausibile, e nessuno pensa a verificarlo.
+
+Per farle dimenticare qualcosa basta chiederglielo. Il fatto non viene
+distrutto, viene solo messo da parte: come per un lavoro abbandonato e per un
+database corrotto, una decisione che si può rileggere è meno definitiva di una
+che non si può.
+
+> **Costa qualcosa, ed è giusto saperlo.** I fatti vengono messi davanti al
+> modello a ogni singolo messaggio, quindi si pagano ogni volta. Misurato sul
+> traffico vero: senza nessun fatto uno scambio passa da ~2.360 a ~2.660 token,
+> con trenta fatti a ~3.100. Sul tetto gratuito di Groq da 200.000 token al
+> giorno significa passare da ~84 scambi a ~64. Il massimo è **50 fatti**.
 
 Tempi di risposta tipici: uno o due secondi. L'indicatore "sta scrivendo" compare
 subito, così sai che il messaggio è arrivato.

@@ -1396,6 +1396,42 @@ non scoperta dopo.
 
 ---
 
+## 18-bis. Memoria di fatti: implementata il 1 settembre 2026
+
+La voce 18 era una proposta; questa e' cosa e' stato costruito, e le due cose
+in cui la misura ha corretto il progetto.
+
+`tools/facts/` — chiamato **facts** e non **memory** come scritto nella 18.4,
+perche' `core/memory.py` esiste gia' ed e' l'opposto: dimentica per anzianita'.
+Due moduli chiamati "memoria" che dicono cose opposte sul dimenticare sono una
+collisione di nomi che questo progetto ha gia' pagato una volta.
+
+**Due tool, non tre.** Niente `recall`: tutto e' gia' nel contesto, e una terza
+dichiarazione si pagherebbe a ogni turno per rispondere a una domanda di cui il
+modello vede gia' la risposta.
+
+**Le due correzioni arrivate dalla misura, non dal ragionamento:**
+
+1. **Avevo sottostimato il costo all'utente.** Gli avevo detto +15%. Le sole
+   dichiarazioni dei tool costano **303 token a ogni turno**, pagati anche a
+   vuoto: il costo parte da +13% con zero fatti. La stima aveva contato i fatti
+   e dimenticato gli strumenti per gestirli.
+2. **Il tetto prometteva piu' di quanto potesse mantenere.** `MAX_ACTIVE_FACTS`
+   era 100, ma il limite di 4.000 caratteri sul contesto iniettato ne fa entrare
+   ~80: gli altri sarebbero stati salvati, contati e mai visti dal modello.
+   Portato a **50**, i due limiti smettono di contendersi il ruolo — il conteggio
+   vincola l'uso normale, i caratteri restano una difesa contro i fatti lunghi.
+
+**Costo finale, misurato sul traffico di produzione:** da ~84 scambi/giorno a
+~75 (nessun fatto), ~64 (trenta fatti), ~59 (al tetto).
+
+**Verificato prima di collegare qualsiasi cosa:** i 357 test preesistenti girati
+intatti, tutti verdi. Dopo il collegamento ne e' fallito uno solo — quello che
+asserisce l'insieme esatto dei tool, cioe' il test che fa il suo mestiere.
+Verificato in particolare che i tre store convivano sullo stesso file SQLite
+senza che la finestra smetta di potare, i fatti inizino a scadere, o il
+controllo d'integrita' fallisca.
+
 ## 19. Nessuno interroga `/health` (proposta, 31 agosto 2026)
 
 Durante la revisione per la produzione ho reso onesto l'endpoint `/health`:
