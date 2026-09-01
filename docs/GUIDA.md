@@ -1499,14 +1499,32 @@ lavoro appena inserito — cioè esattamente il difetto che tutto questo esiste
 per chiudere. La freschezza è la funzione; la cache compra robustezza senza
 spenderne.
 
-Un'attività pianificata la tiene tiepida anche quando nessuna sessione è
-aperta, così una sessione che parte mentre il server è giù sa comunque
-qualcosa:
+A riscriverla sono gli hook stessi: ogni apertura di sessione e ogni tuo
+messaggio la aggiornano, perché ognuno di quei momenti interroga già il server.
+Non serve nient'altro.
 
-```powershell
-# ogni 5 minuti; rimuovibile con Unregister-ScheduledTask
-Get-ScheduledTask -TaskName 'EMMA queue cache'
-```
+> **Un'attività pianificata: provata e disattivata.** Il 1 settembre 2026 ne è
+> stata registrata una che rinfrescava la cache ogni 5 minuti anche a sessione
+> chiusa (`scripts/queue-brief.sh --refresh`). Ha funzionato, e va comunque
+> tolta di mezzo, per due ragioni che si sono viste solo all'uso.
+>
+> **Si vedeva.** Eseguendo Git Bash come attività `Interactive`, faceva
+> lampeggiare una finestra di terminale sullo schermo ogni cinque minuti.
+> L'opzione `-Hidden` di `New-ScheduledTaskSettingsSet` non serve a questo:
+> nasconde l'attività nell'elenco dell'Utilità di pianificazione, non la
+> finestra. Per non vederla servirebbe farla girare nella sessione 0
+> (`-LogonType S4U`), il che apre la domanda se le chiavi SSH funzionino
+> ancora da lì.
+>
+> **E comprava pochissimo.** La cache è già aggiornata a ogni messaggio e a
+> ogni apertura; l'attività aggiungeva solo aggiornamenti mentre nessuna
+> sessione è aperta — cioè quando non c'è nessuno da avvisare. L'unico
+> guadagno reale era che una sessione aperta *dopo* un guasto del server
+> trovasse un numero un po' meno vecchio.
+>
+> Un fastidio permanente per un guadagno marginale è uno scambio sbagliato.
+> L'attività resta registrata ma **disattivata**; si toglie del tutto con
+> `Unregister-ScheduledTask -TaskName 'EMMA queue cache'`.
 
 ### 4.9.5 L'attesa che non costa
 

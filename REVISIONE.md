@@ -1675,6 +1675,21 @@ per chiudere. L'ordine giusto e' l'inverso: **prima il server, la cache solo se
 non risponde**, dichiarando quanto e' vecchio il dato. Un'attivita' pianificata
 ogni 5 minuti la tiene tiepida anche a sessione chiusa.
 
+**L'attivita' pianificata e' durata un'ora.** L'utente ha visto una finestra di
+terminale lampeggiare ogni cinque minuti: `-Hidden` in
+`New-ScheduledTaskSettingsSet` nasconde l'attivita' nell'elenco, non la
+finestra, e con `LogonType: Interactive` gira dentro la sessione dell'utente.
+Non potevo accorgermene — non vedo lo schermo — ed e' l'unica classe di difetto
+in cui l'utente e' l'unico strumento di misura disponibile.
+
+Disattivata, non eliminata, su sua richiesta. E la valutazione va rifatta con il
+costo vero sul piatto: la cache e' gia' riscritta a ogni messaggio e a ogni
+apertura di sessione, quindi l'attivita' aggiungeva soltanto aggiornamenti
+mentre nessuna sessione e' aperta — cioe' quando non c'e' nessuno da avvisare.
+Un fastidio permanente per un guadagno marginale e' uno scambio sbagliato, e
+l'avevo proposto io definendolo "la meta' piu' piccola" senza sapere che aveva
+anche un costo visibile.
+
 Anche li' un difetto trovato provando: sotto `set -o pipefail`, `grep` che non
 trova nulla esce 1, quindi una **coda vuota** era indistinguibile da un server
 irraggiungibile — e con la coda appena svuotata lo script annunciava "5 lavori"
@@ -1711,7 +1726,7 @@ di non avere.
 | 16.4 | Snapshot periodici | fase futura, se la finestra di perdita risultasse troppo larga |
 | 17 | EMMA committente del proprio sviluppo | **da fare come v0.3**: tre tool, coda nel database, checkpoint 1/3/4/5 |
 | 18 | Memoria di fatti persistenti | fase futura |
-| 23 | Accorgersi di un lavoro a sessione aperta | **fatti tutti e tre i casi**: `UserPromptSubmit`, `Stop` con `asyncRewake`, cache locale |
+| 23 | Accorgersi di un lavoro a sessione aperta | **fatti tutti e tre i casi**; l'attivita' pianificata e' stata disattivata: finestra lampeggiante per un guadagno marginale |
 | 22 | Il deploy sovrascrive e non sincronizza | **la C** (`rsync --delete`): un modulo cancellato resta importabile in produzione |
 | 21 | Lock per conversazione nel router | non ora; **primo passo del satellite vocale**, prima del secondo canale |
 | 20 | Spezzare `core/llm.py` in tre moduli | **no**: 407 righe di codice su 798, il resto e' documentazione. Fatti deduplicazione e riordino; rivalutare al terzo provider |
