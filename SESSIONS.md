@@ -5,6 +5,51 @@ for the next session. Newest entry at the top.
 
 ---
 
+## 2026-09-03 — Session 13
+
+**Status:** Completa, in produzione (`ee56a0f`). Sessione ripresa dopo un crash.
+
+**Context:** Implementata la voce 24 di `REVISIONE.md`, la rimozione dei tool a
+due stadi proposta dall'utente.
+
+**Il progetto e' suo, ed e' migliore di quello che avevo proposto io** (una
+variabile in `.env` letta all'avvio). Prima richiesta: il tool viene **solo
+disattivato**. Seconda richiesta, e **solo se e' ancora spento**: si registra il
+lavoro di sviluppo che lo toglie dal codice. "Gia' spento" non e' una
+formalita', e' una prova — se ne e' fatto a meno e non e' mancato.
+
+**La cosa che mi aspettavo costosa non lo era.** Credevo che l'effetto immediato
+richiedesse di rendere mutabile l'insieme dei tool nel router. Invece il router
+costruiva **gia'** le dichiarazioni una volta per turno, quindi e' bastato un
+protocollo `ToolGate` accanto a `Tool` e `ContextProvider` — `core/` continua a
+non importare niente da `tools/`.
+
+**Due switch per una porta.** Nascondere la dichiarazione e' cio' che di solito
+impedisce l'uso; ma una chiamata puo' essere gia' in volo da un turno in cui il
+tool era ancora offerto, quindi c'e' anche un rifiuto in esecuzione. E' quello
+che trasforma il cancello da forte suggerimento a garanzia.
+
+**Non chiudersi fuori:** `list_tools` e `enable_tool` non sono spegnibili, e un
+test verifica che quei due nomi **esistano davvero** — una guardia su un nome
+scritto male non protegge niente. Un tool spento resta elencato come
+*(disattivato)*: uno che sparisse non si potrebbe piu' chiedere di riaccendere.
+
+**Prova dal vivo, quattro turni:** "che ore sono" -> funziona; "elimina
+current_time" -> **solo disattivato**, zero lavori; "che ore sono" -> *"Al
+momento non ho piu' lo strumento per l'orario. Vuoi riattivarlo?"*; "elimina
+current_time" -> **lavoro #1 registrato**. Il terzo turno e' meglio del
+progetto: garantivo solo che il tool sparisse, che se ne accorgesse e offrisse
+di riaccenderlo l'ha dedotto lei.
+
+**Costo: +276 token a turno**, il piu' alto finora — da ~65 a ~59 scambi al
+giorno. Detto chiaramente in `REVISIONE.md`: si paga a ogni messaggio e si usa
+raramente, quindi se la quota stringesse questi due sono fra i primi candidati
+a spegnersi da soli.
+
+**Numeri:** 466 test (erano 441), 25 nuovi, `tools/toolstate` al 96%.
+
+---
+
 ## 2026-09-02 — Session 12
 
 **Status:** Completa, in produzione (`a3114df`).
