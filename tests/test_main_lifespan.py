@@ -178,6 +178,7 @@ async def test_the_router_gets_the_tools_and_the_context_provider(tmp_path, no_t
         "forget_fact",
         # The clock, commissioned as job #9.
         "current_time",
+        "list_tools",
     }
     assert len(kwargs["context_providers"]) == 2
 
@@ -445,3 +446,23 @@ async def test_a_failure_after_the_facts_are_open_still_closes_them(tmp_path, no
         await run_lifespan(app, expect_failure=True)
 
     closed.assert_awaited_once()
+
+
+async def test_the_inventory_is_told_about_every_tool_including_itself(tmp_path, no_telegram):
+    """The two-phase wiring is easy to get half-right, and silently.
+
+    An inventory nobody filled in answers "I do not know" rather than listing
+    nothing, so the failure would not crash -- it would just be wrong every
+    time somebody asked what she can do.
+    """
+    from tools.introspection import ToolInventory
+
+    with patch("main.Router") as router:
+        create_app(build_config(tmp_path))
+
+    tools = router.call_args.kwargs["tools"]
+    (inventory,) = [t for t in tools if isinstance(t, ToolInventory)]
+
+    assert await inventory.run({}) != await ToolInventory().run({})
+    assert f"{len(tools)} strumenti" in await inventory.run({})
+    assert "list_tools" in await inventory.run({})

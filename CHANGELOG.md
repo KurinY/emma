@@ -15,6 +15,34 @@ change will always be listed here.
 
 ### Added
 
+- **She can say what she is able to do** (`list_tools`). The user noticed that
+  asked how many tools she had and which, EMMA could not answer. Tool
+  declarations reach the model through the API's own field — as functions
+  available to call, not as data to read — so enumerating them is not something
+  a model does reliably about itself.
+
+  The inventory is handed the same tuple the router gets, itself included: a
+  list written by hand would be a second place to update and the first to be
+  forgotten. Short by default (a count and the names), detailed on request.
+
+### Fixed
+
+- **The personality prompt denied capabilities she had.** It still said
+  *"Rispondi a domande e converso. Non hai accesso a internet, non puoi
+  eseguire comandi…"* — an accurate description of v0.1, when the tool list was
+  genuinely empty. Eight tools later it was telling her, in 39% of her context
+  on every single turn, that she could not do things she could. That is the
+  more likely reason she seemed not to notice her own tools, and it was our
+  sentence, not her failure. It now says what she has, tells her to look the
+  list up rather than recite it, and keeps the honest half — no internet, no
+  commands, no files — while offering to register the missing capability as a
+  development job.
+
+  Costs +306 tokens a turn between the new declaration and the longer prompt:
+  about 65 exchanges a day against Groq's cap, where there were 72.
+
+### Added
+
 - **A clock** (`current_time`, commissioned as job #9). She has no clock of her
   own and cannot infer the time from the conversation, so before this she
   guessed, which is always wrong.

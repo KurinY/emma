@@ -34,7 +34,7 @@ from core.tasks import TaskStore
 from tools.clock import clock_tools
 from tools.development import DevelopmentContext, development_tools
 from tools.facts import FactsContext, FactStore, facts_tools
-from tools.introspection import introspection_tools
+from tools.introspection import ToolInventory, introspection_tools
 
 logger = logging.getLogger("emma")
 
@@ -104,16 +104,27 @@ def create_app(config: Config) -> FastAPI:
     # core/ never learns what a fact is, exactly as it never learned what a
     # development job is.  See REVISIONE.md, entry 18.
     facts = FactStore(db_path=config.memory_db_path)
+    # Built in two steps because one of them describes the others. Asked how
+    # many tools she has, EMMA could not say: declarations reach the model as
+    # functions to call, not as data to read. Assembling the list by hand here
+    # would be a second place to update and the first to be forgotten, so the
+    # inventory is handed the same tuple the router gets, itself included.
+    all_tools = (
+        *development_tools(tasks),
+        *introspection_tools(),
+        *facts_tools(facts),
+        *clock_tools(),
+        ToolInventory(),
+    )
+    for tool in all_tools:
+        if isinstance(tool, ToolInventory):
+            tool.describes(all_tools)
+
     router = Router(
         llm=llm,
         memory=memory,
         system_prompt=system_prompt,
-        tools=(
-            *development_tools(tasks),
-            *introspection_tools(),
-            *facts_tools(facts),
-            *clock_tools(),
-        ),
+        tools=all_tools,
         # The queue's shape goes in front of the model on every turn rather
         # than waiting to be asked for: whether a tool gets called is the
         # model's decision, and it repeated a stale answer four times in ten

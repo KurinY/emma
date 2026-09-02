@@ -1,9 +1,18 @@
 """Tools with which EMMA can answer questions about herself.
 
-One so far: which version of her own code is running.  It is a small thing to
-ask and a surprisingly useful one, because the honest answer distinguishes two
-situations that look identical from a chat -- the assistant behaving oddly
-because of a bug, and behaving oddly because the server never received the fix.
+Two: which version of her own code is running, and what she is able to do.
+Both answer questions that look trivial and are not, because the alternative
+to asking is the model answering from what it assumes about itself.
+
+The version one distinguishes two situations that look identical from a chat --
+the assistant behaving oddly because of a bug, and behaving oddly because the
+server never received the fix.
+
+The inventory exists because the user noticed something real: asked how many
+tools she has and which, EMMA could not say. Tool declarations reach the model
+through the API's own field, as functions available to call rather than as data
+to read, so enumerating them is not something it can reliably do. This makes
+the list a thing she can look up, like anything else she must not guess at.
 
 The facts come from :mod:`core.version`, which prefers what the deploy wrote
 down over anything it might infer.  Nothing here guesses: an assistant that
@@ -13,6 +22,7 @@ confident wrong answer is the one nobody thinks to check.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, ClassVar
 
 from core import version
@@ -37,6 +47,72 @@ class RunningVersion:
         return version.describe()
 
 
+class ToolInventory:
+    """Report which tools EMMA has, and what each is for.
+
+    Given the complete set after it is built, itself included, because there is
+    no other honest way: the tools exist before the router that holds them, and
+    a list assembled by hand here would be a second place to update and the
+    first to be forgotten. See :meth:`describes`.
+    """
+
+    name = "list_tools"
+    description = (
+        "List the tools you can call, with how many there are. Use it whenever "
+        "the user asks what you can do, how many tools you have, which ones, or "
+        "whether you are able to do some particular thing. Pass detailed=true "
+        "when they want to know what each one is for. Do not answer from "
+        "memory: the set changes as EMMA is developed, and what you assume "
+        "about yourself is not evidence. The descriptions come back in English "
+        "because they are written for you -- render them for the user in "
+        "Italian, briefly."
+    )
+    input_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "detailed": {
+                "type": "boolean",
+                "description": (
+                    "True to include what each tool is for. False, the default, "
+                    "returns the count and the names only."
+                ),
+            }
+        },
+    }
+
+    def __init__(self) -> None:
+        """Build the tool with nothing to describe yet."""
+        self._tools: tuple[Any, ...] = ()
+
+    def describes(self, tools: Sequence[Any]) -> None:
+        """Hand it the complete set, including itself.
+
+        Two-phase on purpose. The alternative -- reaching into the router for
+        its registry -- would make a tool depend on the thing that runs it, and
+        the ``Tool`` protocol exists precisely so that nothing has to.
+
+        Args:
+            tools: Every tool the router was given.
+        """
+        self._tools = tuple(tools)
+
+    async def run(self, arguments: dict[str, Any]) -> str:
+        """List the tools, with their descriptions when asked."""
+        if not self._tools:  # pragma: no cover - a wiring mistake, not a state
+            return "Non lo so: l'elenco degli strumenti non mi e' stato passato."
+
+        detailed = bool(arguments.get("detailed", False))
+        count = len(self._tools)
+        opening = f"Ho {count} strumenti" if count != 1 else "Ho 1 strumento"
+
+        if not detailed:
+            return f"{opening}: " + ", ".join(t.name for t in self._tools) + "."
+
+        lines = [f"{opening}:"]
+        lines += [f"- {t.name}: {t.description}" for t in self._tools]
+        return "\n".join(lines)
+
+
 def introspection_tools() -> tuple[RunningVersion]:
     """Build the tools EMMA uses to answer questions about herself.
 
@@ -46,4 +122,4 @@ def introspection_tools() -> tuple[RunningVersion]:
     return (RunningVersion(),)
 
 
-__all__ = ["RunningVersion", "introspection_tools"]
+__all__ = ["RunningVersion", "ToolInventory", "introspection_tools"]

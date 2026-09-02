@@ -868,6 +868,24 @@ Gli altri due stanno in `tools/facts/`, il modulo della memoria persistente:
 | `remember_fact` | le chiedi di ricordare qualcosa che non deve scadere |
 | `forget_fact` | le chiedi di dimenticarlo |
 
+E due che parlano di lei stessa, in `tools/introspection.py`:
+
+| Strumento | Quando lo usa |
+| --- | --- |
+| `running_version` | le chiedi quale versione sta girando |
+| `list_tools` | le chiedi cosa sa fare, quanti strumenti ha, o quali |
+
+**Perche' serve un tool per elencare i tool.** Sembra assurdo che debba
+chiederlo: gli strumenti glieli passiamo noi a ogni richiesta. Ma le
+dichiarazioni arrivano al modello attraverso il campo dedicato dell'API, come
+*funzioni che puo' chiamare*, non come dati che puo' leggere — quindi
+enumerarle non e' qualcosa che sappia fare in modo affidabile su se stesso.
+Chiedendole quanti tool avesse, non sapeva rispondere.
+
+`list_tools` riceve **la stessa tupla che riceve il router**, se stesso incluso:
+una lista scritta a mano sarebbe un secondo posto da aggiornare, e il primo a
+essere dimenticato.
+
 **Non c'è un terzo strumento per rileggere i fatti**, ed è deliberato: sono già
 tutti davanti al modello a ogni turno, quindi uno strumento per andarli a
 prendere risponderebbe a una domanda di cui vede già la risposta — e ogni
