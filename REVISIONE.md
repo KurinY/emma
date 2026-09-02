@@ -1770,9 +1770,33 @@ riceve e senza riavvio. L'effetto sarebbe immediato.
 **Il costo:** un tool in piu' (spegni/riaccendi) pagato a ogni turno, piu' il
 filtro. Stimabile intorno ai 150-200 token/turno, cioe' ~4 scambi/giorno.
 
-**Verdetto: fattibile e ben progettato, la complessita' e' contenuta perche' il
-router lavora gia' per turno. Da fare quando serve davvero spegnere qualcosa:
-oggi nove tool sono pochi e la rimozione via coda basta.**
+### Implementata il 2 settembre 2026
+
+Fatta su richiesta dell'utente. Le tre domande hanno avuto le risposte
+proposte, e una quarta e' emersa costruendola.
+
+| | Domanda | Come e' finita |
+| --- | --- | --- |
+| 1 | Dove vive lo stato? | Tabella `tool_state` nello stesso file SQLite: sopravvive al riavvio, entra nel backup, e' ispezionabile |
+| 2 | Chi puo' spegnere? | `PROTECTED` = `list_tools` + `enable_tool`. Un test verifica che quei nomi esistano davvero: una guardia su un nome scritto male non protegge niente |
+| 3 | Cosa vede il modello? | Uno spento sparisce dalle dichiarazioni; `list_tools` lo elenca come *(disattivato)* |
+| 4 | **E se lo chiama lo stesso?** | Rifiutato anche in esecuzione. Una chiamata puo' essere gia' in volo da un turno in cui lo strumento era ancora offerto: nascondere la dichiarazione e' cio' che *di solito* basta, rifiutare e' cio' che lo rende una garanzia |
+
+**`ToolGate` e' un protocollo in `core/router.py`**, come `Tool` e
+`ContextProvider`. Il router non importa niente da `tools/`: chiede a chi gli e'
+stato passato. E un cancello che non risponde non costa il turno — si offre
+tutto, perche' delle due direzioni sbagliate quella e' la meno grave: offrire
+uno strumento che doveva stare zitto costa una capacita' messa da parte,
+nasconderli tutti lascerebbe l'assistente incapace di fare qualsiasi cosa e
+incapace di spiegare perche'.
+
+**Il costo e' il piu' alto finora:** +276 token a turno per le due
+dichiarazioni, da ~65 a ~59 scambi al giorno. Vale la pena dirlo perche' e' il
+tipo di aggiunta che si paga per sempre e si usa raramente — se un giorno la
+quota stringesse, questi due sono fra i primi candidati a essere spenti da soli.
+
+**Verdetto: fatta, 25 test, e la complessita' e' rimasta dove previsto perche'
+il router costruiva gia' le dichiarazioni una volta per turno.**
 
 **Nota collegata:** l'utente ha anche osservato che un giorno servira' *"un tool
 per la personalizzazione"* — il nome dell'utente e' stato tolto dal prompt
@@ -1805,7 +1829,7 @@ versionato.
 | 16.4 | Snapshot periodici | fase futura, se la finestra di perdita risultasse troppo larga |
 | 17 | EMMA committente del proprio sviluppo | **da fare come v0.3**: tre tool, coda nel database, checkpoint 1/3/4/5 |
 | 18 | Memoria di fatti persistenti | fase futura |
-| 24 | Rimuovere un tool in due stadi | **fattibile e ben progettata** (idea dell'utente); da fare quando servira' davvero |
+| 24 | Rimuovere un tool in due stadi | **fatta** il 2 settembre 2026 (idea dell'utente) |
 | 23 | Accorgersi di un lavoro a sessione aperta | **fatti tutti e tre i casi**; l'attivita' pianificata e' stata disattivata: finestra lampeggiante per un guadagno marginale |
 | 22 | Il deploy sovrascrive e non sincronizza | **la C** (`rsync --delete`): un modulo cancellato resta importabile in produzione |
 | 21 | Lock per conversazione nel router | non ora; **primo passo del satellite vocale**, prima del secondo canale |

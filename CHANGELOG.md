@@ -15,6 +15,26 @@ change will always be listed here.
 
 ### Added
 
+- **A tool can be switched off, and removed on a second request**
+  (`remove_tool`, `enable_tool`). The design is the user's: the first request
+  only switches the tool off, and only a second request *while it is still off*
+  registers the development job that takes it out of the code.
+
+  "Already off" is not a formality, it is evidence — the tool has been gone a
+  while and was not missed — so the irreversible half never happens on a first
+  request. It is the same philosophy as an abandoned job that is not deleted
+  and a corrupt database that is quarantined.
+
+  Switching off takes effect on the next message rather than the next restart:
+  the router already built its declarations once per turn, so a `ToolGate`
+  filters them there. It refuses at execution too, since a call can already be
+  in flight from a turn where the tool was still offered. `list_tools` and
+  `enable_tool` cannot be switched off — without them you could close the door
+  and lose the key.
+
+  Costs +276 tokens a turn, the largest single addition yet: about 59 exchanges
+  a day against Groq's cap, where there were 65.
+
 - **She can say what she is able to do** (`list_tools`). The user noticed that
   asked how many tools she had and which, EMMA could not answer. Tool
   declarations reach the model through the API's own field — as functions

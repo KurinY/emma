@@ -875,6 +875,31 @@ E due che parlano di lei stessa, in `tools/introspection.py`:
 | `running_version` | le chiedi quale versione sta girando |
 | `list_tools` | le chiedi cosa sa fare, quanti strumenti ha, o quali |
 
+E due per togliere di mezzo uno strumento, in `tools/toolstate/`:
+
+| Strumento | Quando lo usa |
+| --- | --- |
+| `remove_tool` | vuoi eliminare uno strumento — **in due tempi**, vedi sotto |
+| `enable_tool` | vuoi riaccenderne uno spento |
+
+**Perche' due tempi.** Togliere uno strumento dal codice e' un lavoro di
+sviluppo, e non si annulla in fretta. Quindi la prima volta che lo chiedi lo
+strumento viene **solo disattivato**: sparisce subito dalle sue capacita' — non
+al prossimo riavvio, dal messaggio dopo — e lo riaccendi quando vuoi. Se glielo
+chiedi una seconda volta **mentre e' ancora spento**, allora registra il lavoro
+per toglierlo davvero dalla codebase.
+
+Il secondo passo non e' una formalita': "gia' spento" vuol dire che ne hai fatto
+a meno per un po' e non ti e' mancato. La parte irreversibile non capita mai
+alla prima richiesta.
+
+Due strumenti non si possono spegnere, `list_tools` e `enable_tool`: senza il
+primo non sapresti cosa e' spento, senza il secondo non potresti riaccenderlo —
+e l'unica via d'uscita sarebbe una modifica a mano sul server.
+
+Uno strumento spento resta elencato da `list_tools` come *(disattivato)*. Se
+sparisse dall'elenco non sapresti piu' cosa chiedere di riaccendere.
+
 **Perche' serve un tool per elencare i tool.** Sembra assurdo che debba
 chiederlo: gli strumenti glieli passiamo noi a ogni richiesta. Ma le
 dichiarazioni arrivano al modello attraverso il campo dedicato dell'API, come

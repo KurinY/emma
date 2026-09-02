@@ -22,10 +22,13 @@ confident wrong answer is the one nobody thinks to check.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from typing import Any, ClassVar
 
 from core import version
+
+logger = logging.getLogger(__name__)
 
 
 class RunningVersion:
@@ -63,9 +66,10 @@ class ToolInventory:
         "whether you are able to do some particular thing. Pass detailed=true "
         "when they want to know what each one is for. Do not answer from "
         "memory: the set changes as EMMA is developed, and what you assume "
-        "about yourself is not evidence. The descriptions come back in English "
-        "because they are written for you -- render them for the user in "
-        "Italian, briefly."
+        "about yourself is not evidence. Tools marked disattivato have been "
+        "switched off and cannot be called until enable_tool puts them back. "
+        "The descriptions come back in English because they are written for "
+        "you -- render them for the user in Italian, briefly."
     )
     input_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
@@ -80,9 +84,30 @@ class ToolInventory:
         },
     }
 
-    def __init__(self) -> None:
-        """Build the tool with nothing to describe yet."""
+    def __init__(self, gate: Any | None = None) -> None:
+        """Build the tool with nothing to describe yet.
+
+        Args:
+            gate: Optional :class:`core.router.ToolGate`, so the listing can
+                show what is switched off. Without it every tool is reported
+                as available, which is true when nothing can switch them off.
+        """
         self._tools: tuple[Any, ...] = ()
+        self._gate = gate
+
+    async def _switched_off(self) -> frozenset[str]:
+        """Which tools are off, or none when that cannot be established.
+
+        A gate that will not answer must not cost the listing: an inventory
+        that says nothing is worse than one that omits a detail.
+        """
+        if self._gate is None:
+            return frozenset()
+        try:
+            return await self._gate.disabled()
+        except Exception:  # the listing is worth more than the annotation
+            logger.warning("could not read which tools are switched off", exc_info=True)
+            return frozenset()
 
     def describes(self, tools: Sequence[Any]) -> None:
         """Hand it the complete set, including itself.
@@ -97,19 +122,28 @@ class ToolInventory:
         self._tools = tuple(tools)
 
     async def run(self, arguments: dict[str, Any]) -> str:
-        """List the tools, with their descriptions when asked."""
+        """List the tools, marking the switched-off ones and describing on request."""
         if not self._tools:  # pragma: no cover - a wiring mistake, not a state
             return "Non lo so: l'elenco degli strumenti non mi e' stato passato."
 
+        off = await self._switched_off()
         detailed = bool(arguments.get("detailed", False))
         count = len(self._tools)
         opening = f"Ho {count} strumenti" if count != 1 else "Ho 1 strumento"
+        if off:
+            # Named here because a tool that is merely absent from the listing
+            # is indistinguishable from one that was never built, and the user
+            # would have nothing to ask to switch back on.
+            opening += f", di cui {len(off)} disattivati"
+
+        def label(tool: Any) -> str:
+            return f"{tool.name} (disattivato)" if tool.name in off else tool.name
 
         if not detailed:
-            return f"{opening}: " + ", ".join(t.name for t in self._tools) + "."
+            return f"{opening}: " + ", ".join(label(t) for t in self._tools) + "."
 
         lines = [f"{opening}:"]
-        lines += [f"- {t.name}: {t.description}" for t in self._tools]
+        lines += [f"- {label(t)}: {t.description}" for t in self._tools]
         return "\n".join(lines)
 
 

@@ -169,6 +169,33 @@ class ContextProvider(Protocol):
         ...
 
 
+@runtime_checkable
+class ToolGate(Protocol):
+    """Says which registered tools are switched off at this moment.
+
+    A tool is installed by editing the composition root and removed the same
+    way, which is deliberate and stays true: this does not make the tool set
+    mutable, it makes part of it *quiet*. The router still holds every tool it
+    was given; a gated one is simply not offered to the model and not run if
+    the model asks for it anyway.
+
+    Two switches for one door, on purpose. Hiding the declaration is what
+    actually stops a tool being used, since a model cannot call what it cannot
+    see -- but a conversation already in flight can carry a call to a tool that
+    was visible a moment ago, and refusing at execution is what makes the gate a
+    guarantee rather than a strong hint.
+
+    Why any of this exists: removing a tool from the code is a development job
+    and cannot be undone in a hurry, so it should not be the first thing that
+    happens. Switching it off is reversible, survives a restart, and buys the
+    time to find out whether it was really unwanted. See REVISIONE.md, entry 24.
+    """
+
+    async def disabled(self) -> frozenset[str]:
+        """Return the names currently switched off, empty when none are."""
+        ...
+
+
 @dataclass(slots=True)
 class TurnStats:
     """What the router has seen since the process started.
@@ -221,6 +248,8 @@ class Router:
         memory: Where conversation history is read from and written to.
         system_prompt: The assistant personality.
         tools: Tools the model may call.  Empty in version 1.
+        tool_gate: Says which of them are switched off right now, if anything
+            does.  ``None`` means every registered tool is offered.
         context_providers: Facts refreshed and put in front of the model on
             every turn, for state a tool would only report when asked.
         max_tool_iterations: Ceiling on the tool rounds of a single turn.
@@ -231,6 +260,7 @@ class Router:
     system_prompt: str
     tools: Sequence[Tool] = ()
     context_providers: Sequence[ContextProvider] = ()
+    tool_gate: ToolGate | None = None
     max_tool_iterations: int = DEFAULT_MAX_TOOL_ITERATIONS
     _tools_by_name: dict[str, Tool] = field(init=False, repr=False, default_factory=dict)
     stats: TurnStats = field(init=False, repr=False, default_factory=TurnStats)
@@ -359,10 +389,11 @@ class Router:
             LLMUnavailableError: Propagated from the model client so that
                 :meth:`handle` can turn it into a polite message.
         """
-        tool_schemas = self._tool_schemas()
-        # Gathered once per turn, not once per tool round: the state cannot
-        # change under the assistant mid-turn, and re-reading it every round
-        # would pay for it several times over for the same answer.
+        # Both gathered once per turn, not once per tool round: neither can
+        # change under the assistant mid-turn, and re-reading them every round
+        # would pay for them several times over for the same answer.
+        switched_off = await self._switched_off()
+        tool_schemas = self._tool_schemas(switched_off)
         system = await self._system_prompt_now()
 
         for iteration in range(1, self.max_tool_iterations + 1):
@@ -389,7 +420,9 @@ class Router:
             results: list[dict[str, Any]] = []
             for call in tool_uses:
                 logger.info("tool round %d: running %s(%s)", iteration, call.name, call.input)
-                results.append(await self._execute_tool(call.id, call.name, call.input))
+                results.append(
+                    await self._execute_tool(call.id, call.name, call.input, switched_off)
+                )
             messages.append({"role": "user", "content": results})
 
         return self._degrade(
@@ -399,7 +432,11 @@ class Router:
         )
 
     async def _execute_tool(
-        self, call_id: str, name: str, arguments: dict[str, Any]
+        self,
+        call_id: str,
+        name: str,
+        arguments: dict[str, Any],
+        switched_off: frozenset[str] = frozenset(),
     ) -> dict[str, Any]:
         """Run one tool and wrap its outcome in a ``tool_result`` block.
 
@@ -411,10 +448,23 @@ class Router:
             call_id: The ``tool_use`` id this result answers.
             name: Name of the requested tool.
             arguments: Arguments produced by the model.
+            switched_off: Names the gate reported as off for this turn.
 
         Returns:
             A ``tool_result`` content block.
         """
+        if name in switched_off:
+            # Reachable when a call was already in flight from a turn where the
+            # tool was still offered. Answered rather than ignored, so the model
+            # can say why instead of falling silent.
+            logger.info("refused '%s': switched off", name)
+            return _tool_result(
+                call_id,
+                f"lo strumento {name} e' disattivato: non posso usarlo finche' "
+                f"non viene riattivato",
+                is_error=True,
+            )
+
         tool = self._tools_by_name.get(name)
         if tool is None:
             logger.error("model asked for unknown tool '%s'", name)
@@ -453,9 +503,32 @@ class Router:
             return self.system_prompt
         return self.system_prompt + "\n\n" + "\n".join(lines)
 
-    def _tool_schemas(self) -> list[dict[str, Any]] | None:
-        """Return the tool declarations for the API, or ``None`` if there are none."""
-        if not self.tools:
+    async def _switched_off(self) -> frozenset[str]:
+        """Ask the gate what is off, and treat its failure as "nothing is".
+
+        A gate that cannot answer must not cost the turn, and of the two ways
+        to be wrong this is the safer one: offering a tool that should have been
+        quiet costs the user a capability they had asked to put aside, while
+        hiding every tool would leave the assistant unable to do anything at all
+        and unable to explain why.
+        """
+        if self.tool_gate is None:
+            return frozenset()
+        try:
+            return await self.tool_gate.disabled()
+        except Exception:  # a broken gate must not cost the answer
+            logger.exception("could not read which tools are switched off; offering all")
+            return frozenset()
+
+    def _tool_schemas(self, switched_off: frozenset[str]) -> list[dict[str, Any]] | None:
+        """Return the declarations for the API, minus anything switched off.
+
+        ``None`` rather than an empty list when nothing is left: the clients
+        take that to mean "no tools", and an empty list is not the same thing
+        to every provider.
+        """
+        offered = [tool for tool in self.tools if tool.name not in switched_off]
+        if not offered:
             return None
         return [
             {
@@ -463,7 +536,7 @@ class Router:
                 "description": tool.description,
                 "input_schema": tool.input_schema,
             }
-            for tool in self.tools
+            for tool in offered
         ]
 
 

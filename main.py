@@ -35,6 +35,7 @@ from tools.clock import clock_tools
 from tools.development import DevelopmentContext, development_tools
 from tools.facts import FactsContext, FactStore, facts_tools
 from tools.introspection import ToolInventory, introspection_tools
+from tools.toolstate import ToolStateStore, toolstate_tools
 
 logger = logging.getLogger("emma")
 
@@ -104,6 +105,11 @@ def create_app(config: Config) -> FastAPI:
     # core/ never learns what a fact is, exactly as it never learned what a
     # development job is.  See REVISIONE.md, entry 18.
     facts = FactStore(db_path=config.memory_db_path)
+    # Which tools are switched off. Also the router's ToolGate: a tool in here
+    # is not offered to the model and not run if it asks anyway. Switching off
+    # is reversible and removal is a development job, so the two-stage road in
+    # tools/toolstate never deletes anything on a first request.
+    tool_state = ToolStateStore(db_path=config.memory_db_path)
     # Built in two steps because one of them describes the others. Asked how
     # many tools she has, EMMA could not say: declarations reach the model as
     # functions to call, not as data to read. Assembling the list by hand here
@@ -114,11 +120,15 @@ def create_app(config: Config) -> FastAPI:
         *introspection_tools(),
         *facts_tools(facts),
         *clock_tools(),
-        ToolInventory(),
+        *toolstate_tools(tool_state, tasks),
+        ToolInventory(gate=tool_state),
     )
+    # Duck-typed on purpose, like the Tool protocol itself: anything that needs
+    # to know the whole set says so by having the method, and gets it here.
     for tool in all_tools:
-        if isinstance(tool, ToolInventory):
-            tool.describes(all_tools)
+        describes = getattr(tool, "describes", None)
+        if describes is not None:
+            describes(all_tools)
 
     router = Router(
         llm=llm,
@@ -130,6 +140,7 @@ def create_app(config: Config) -> FastAPI:
         # model's decision, and it repeated a stale answer four times in ten
         # rather than looking. See REVISIONE.md, entry 17.
         context_providers=(DevelopmentContext(tasks), FactsContext(facts)),
+        tool_gate=tool_state,
     )
     telegram = TelegramAdapter(
         token=config.telegram_bot_token,
@@ -198,6 +209,8 @@ def create_app(config: Config) -> FastAPI:
             started.append(("task queue", tasks.close))
             await facts.open()
             started.append(("fact store", facts.close))
+            await tool_state.open()
+            started.append(("tool state", tool_state.close))
             await telegram.start()
             started.append(("telegram adapter", telegram.stop))
         except Exception:

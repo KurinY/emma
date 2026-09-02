@@ -179,6 +179,9 @@ async def test_the_router_gets_the_tools_and_the_context_provider(tmp_path, no_t
         # The clock, commissioned as job #9.
         "current_time",
         "list_tools",
+        # The two-stage removal, REVISIONE entry 24.
+        "remove_tool",
+        "enable_tool",
     }
     assert len(kwargs["context_providers"]) == 2
 
@@ -466,3 +469,26 @@ async def test_the_inventory_is_told_about_every_tool_including_itself(tmp_path,
     assert await inventory.run({}) != await ToolInventory().run({})
     assert f"{len(tools)} strumenti" in await inventory.run({})
     assert "list_tools" in await inventory.run({})
+
+
+async def test_the_router_is_given_the_gate(tmp_path, no_telegram):
+    """Without it a switched-off tool would still be offered to the model."""
+    from tools.toolstate import ToolStateStore
+
+    with patch("main.Router") as router:
+        create_app(build_config(tmp_path))
+
+    assert isinstance(router.call_args.kwargs["tool_gate"], ToolStateStore)
+
+
+async def test_the_tool_state_is_opened_and_closed_with_the_rest(tmp_path, no_telegram):
+    """A fourth store on the shared file; it has to join the unwind too."""
+    from tools.toolstate import ToolStateStore
+
+    with patch.object(
+        main.ToolStateStore, "close", autospec=True, side_effect=ToolStateStore.close
+    ) as closed:
+        app = create_app(build_config(tmp_path))
+        await run_lifespan(app)
+
+    closed.assert_awaited_once()
