@@ -5,6 +5,48 @@ for the next session. Newest entry at the top.
 
 ---
 
+## 2026-09-02 — Session 10
+
+**Status:** Completa. Lavoro #9 chiuso, in produzione (`320bc66`).
+
+**Context:** Sessione svegliata dal watcher, non dall'utente: `new work (#9)`.
+Il watcher ha anche ripulito da solo un lock lasciato dal processo della
+sessione precedente (`clearing a lock left by pid 623, which is gone`) — la
+difesa scritta ieri, alla sua prima occasione reale.
+
+**Una correzione dell'utente, e vale per il futuro:** avevo chiesto "il #9 lo
+faccio?". Risposta: *"perche me l'hai chiesto? dovresti farlo senza chiedere dal
+momento che ti ho svegliato con il watcher"*. **La coda e' l'autorizzazione**:
+un lavoro commissionato li' e' gia' approvato, e richiedere conferma fa fare due
+volte lo stesso gesto. Questo sospende, per i lavori che arrivano dalla coda, il
+gate "Understood" della regola 8 di CLAUDE.md.
+
+**Fatto: `tools/clock.py`** — tool `current_time`. Nessuna rete, nessuna chiave,
+nessuna dipendenza nuova.
+
+**Due modi di sbagliare in silenzio, trovati provandolo sulle due macchine:**
+1. **Il fuso e' dell'utente, non del server.** Oggi coincidono, quindi leggere
+   l'orologio di sistema sembrerebbe corretto — e resterebbe corretto finche'
+   qualcuno non sposta la macchina. Il fuso nominato porta anche l'ora legale dal
+   database invece che da un offset fisso: l'Italia e' UTC+1 per meta' anno.
+2. **I nomi non vengono dal locale.** Il servizio gira con `LC_ALL=C`, dove
+   `strftime('%A')` risponde "Wednesday". Giorni e mesi italiani sono scritti nel
+   codice, il che rende anche l'output identico su ogni macchina.
+
+Windows non ha il database dei fusi e il progetto non dipende da `tzdata`:
+li' ripiega sull'orologio di sistema **dichiarandolo**, nella risposta e nel log.
+
+**Verificato con il modello vero in produzione:** sceglie `current_time` per
+"che ore sono", "che giorno e'" e anche per "fra quanti giorni e' il 10
+settembre" — la domanda che non chiede l'ora ma ne ha bisogno.
+
+**Numeri:** 427 test (erano 408), ruff pulito. Costo: +104 token a turno.
+
+**Nota:** il lavoro #8 (meteo) e' stato abbandonato dall'utente fra le due
+sessioni; la coda e' ora vuota.
+
+---
+
 ## 2026-09-01 — Session 9
 
 **Status:** Completa. Modulo memoria in produzione (`95c277b`), verificato dal vivo.
