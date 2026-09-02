@@ -183,7 +183,7 @@ comes back with the capability. Designed in `REVISIONE.md` entry 17.
 
 ---
 
-## v0.4.0 — Voice satellite (Raspberry Pi)
+## v0.5.0 — Voice satellite (Raspberry Pi)
 
 Goal: wake-word → STT → EMMA → TTS response on a Raspberry Pi, forwarding
 to the same Telegram backend without changing the router.

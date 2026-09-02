@@ -1,7 +1,7 @@
 ---
 title: "EMMA — Guida completa"
 subtitle: "Assistente personale self-hosted · versione 1, solo testo"
-version: "v0.3.0"
+version: "v0.4.0"
 date: "31 agosto 2026"
 lang: it
 ---
@@ -674,7 +674,7 @@ suo per volerne sapere lo stato. L'esito finisce sia nel journal sia nel
 servizio stava bene nel momento in cui è stato preso:
 
 ```
-git commit:  3cc4101 (v0.3.0, deployed 2026-09-01T00:17:22+02:00; from the VERSION stamp, not a checkout)
+git commit:  7e5d1fc (v0.4.0, deployed 2026-09-03T01:30:56+02:00; from the VERSION stamp, not a checkout)
 database:    emma.db (consistent snapshot, integrity verified)
 service:     ok - {"status":"ok","store":"ok","telegram":"listening",...}
 ```
@@ -1311,7 +1311,7 @@ Devi leggere `Active: active (running)`. Poi:
 ```bash
 curl -s http://127.0.0.1:8000/health
 # {"status":"ok","store":"ok","model":"claude-sonnet-4-6","provider":"anthropic",
-#  "version":"0.3.0","commit":"a1b2c3d","uptime_seconds":12.4,
+#  "version":"0.4.0","commit":"a1b2c3d","uptime_seconds":12.4,
 #  "turns":0,"degraded_turns":0,"last_degraded_reason":null,
 #  "seconds_since_degraded":null}
 
@@ -2486,6 +2486,6 @@ sudo -u emma git -C /opt/emma checkout main
 
 ---
 
-*EMMA v0.3.0 — guida aggiornata al 31 agosto 2026. Il sorgente di questo
+*EMMA v0.4.0 — guida aggiornata al 3 settembre 2026. Il sorgente di questo
 documento è `docs/GUIDA.md`: modificalo lì e rigenera il PDF, così le due
 versioni non divergono.*

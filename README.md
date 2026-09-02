@@ -132,13 +132,23 @@ that implements the same interface as the real client.
 The phases are deliberately small, and each one lands on the foundation the
 previous one left:
 
-- **v0.1 — text (this release).** Telegram, agentic router, in-memory context.
+- **v0.1 — text.** Telegram, agentic router, in-memory context.
 - **v0.2 — persistence.** SQLite behind `ConversationMemory`, so conversations
   survive a restart.
-- **v0.3 — skills.** Real tools registered on the router: calendar, notes,
-  home automation, web search.
-- **v0.4 — voice.** A Raspberry Pi satellite with wake word, speech-to-text and
+- **v0.3 — tools.** The `Tool` protocol stops being theory. The first set is
+  the one that lets EMMA ask for the others: she can commission her own
+  development, and report which version of herself is running.
+- **v0.4 — memory and self-knowledge (this release).** Facts that do not
+  expire, a clock, an inventory of her own tools, and a two-stage way to switch
+  one off and later have it removed.
+- **v0.5 — voice.** A Raspberry Pi satellite with wake word, speech-to-text and
   text-to-speech, talking to the same core through a new adapter.
+
+The numbers describe what shipped, not what was planned: v0.3 was going to be
+calendar, notes, home automation and web search, and turned out to be the tools
+EMMA needed in order to be developed at all. Reserving a number for a feature
+nobody has built yet is how a roadmap ends up disagreeing with the release
+printed beside it.
 
 ## Contributing
 

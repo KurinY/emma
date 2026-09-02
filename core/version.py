@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 #: The declared version of the assistant.  Bumped by hand when a release is
 #: cut, and paired in the stamp below with the commit, which is what actually
 #: identifies the code.
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 #: Written by ``scripts/deploy.sh`` into the installation directory.  Not in
 #: version control: it describes one deployment, not the source.

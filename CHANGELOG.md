@@ -10,8 +10,9 @@ change will always be listed here.
 
 ## [Unreleased]
 
-> Built and tested, **not deployed**. Present in the tree and wired into
-> `main.py`, but no version running anywhere has it.
+Nothing yet.
+
+## [0.4.0] - 2026-09-03
 
 ### Added
 
@@ -588,7 +589,8 @@ answer and back.
 - One channel (Telegram) and one user.
 - No tools, no voice, no persistence — see the roadmap in the README.
 
-[Unreleased]: https://github.com/KurinY/emma/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/KurinY/emma/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/KurinY/emma/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/KurinY/emma/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/KurinY/emma/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/KurinY/emma/releases/tag/v0.1.0
