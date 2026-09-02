@@ -5,6 +5,51 @@ for the next session. Newest entry at the top.
 
 ---
 
+## 2026-09-03 — Session 14
+
+**Status:** Completa, in produzione (`36a54ab`).
+
+**Context:** L'utente ha invocato `/superpowers:requesting-code-review`. Ho
+affidato la rimozione a due stadi (`a3114df..45a455a`) a un revisore separato,
+con contesto costruito apposta invece della cronologia della sessione.
+
+**Ha trovato tre cose vere, e la prima e' istruttiva.**
+
+1. **"Gia' spento" era un contatore, non una prova.** `disabled_at` veniva
+   scritto e mai letto, e un turno permette cinque giri di strumenti: il modello
+   poteva spegnere un tool e chiederne la rimozione **nello stesso respiro**.
+   Il codice imponeva due chiamate, i documenti promettevano due occasioni.
+   Aggiunta `MIN_TIME_OFF_SECONDS` (un'ora). E' una piccola deviazione dal
+   progetto dell'utente, che diceva "solo se gia' disattivato" senza parlare di
+   tempo — ma il tempo e' cio' che rende vera la motivazione che aveva dato.
+2. **Il cancello era vecchio per il resto del turno**, e il commento che
+   diceva il contrario l'avevo scritto io: vero prima di questa funzione, falso
+   **a causa** sua, perche' spegnere un tool e' a sua volta un tool. Scrivendo
+   il test e' emerso un buco piu' stretto — `remove_tool(x)` e `x` nello stesso
+   giro — quindi il rifiuto ora consulta il cancello **al momento della
+   chiamata**.
+3. **Il router non aveva un solo test.** L'avevo dimostrato a mano in uno
+   script buttato via, cioe' il tipo di prova che sparisce. Ora
+   `tests/test_router_gate.py`, e `core/router.py` e' al **100%**.
+
+**Corretti anche:** `PROTECTED` applicato anche nello store; niente lavori
+duplicati; una riga che sopravvive al tool che nomina non viene piu' contata;
+il mixin rifiuta invece di saltare la validazione; `EnableTool` non eredita un
+mixin che non usa.
+
+**Una precisazione dove la revisione calcava troppo:** il secondo stadio non
+cancella codice, registra un lavoro che un umano legge e che
+`abandon_development` puo' togliere.
+
+**Verificato in produzione, quattro passi:** spegne; rifiuta subito dopo
+dicendo *"riprova fra 60 minuti"* con zero lavori aperti; dopo un'ora simulata
+registra il lavoro #1; una quarta richiesta riporta lo stesso numero invece di
+aprirne un altro.
+
+**Numeri:** 490 test (erano 466), `core/router.py` 100%, toolstate 97-99%.
+
+---
+
 ## 2026-09-03 — Session 13
 
 **Status:** Completa, in produzione (`ee56a0f`). Sessione ripresa dopo un crash.
