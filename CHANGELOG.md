@@ -15,6 +15,23 @@ change will always be listed here.
 
 ### Added
 
+- **A clock** (`current_time`, commissioned as job #9). She has no clock of her
+  own and cannot infer the time from the conversation, so before this she
+  guessed, which is always wrong.
+
+  Small, and with two ways to be quietly wrong that only appeared by running it
+  on both machines. The time zone is **the user's, not the server's**: reading
+  the system clock would look right and stay right until someone moved the
+  machine, and daylight saving comes from the zone database rather than
+  arithmetic on an offset, since Italy is UTC+1 for half the year. And the
+  Italian day and month names are spelled out rather than taken from the
+  locale, because the service runs under `LC_ALL=C`, where `strftime` answers
+  "Wednesday".
+
+  Windows ships no time zone database, so on a development machine it falls
+  back to the system clock — and says so in the answer and in the log, rather
+  than being an hour out in silence.
+
 - **Facts that do not expire** (`tools/facts/`, the memory module of
   `REVISIONE.md` entry 18). `core/memory.py` forgets by age — twenty messages,
   then `DELETE` — so "mia figlia si chiama Sara" dies at the same rate as "che

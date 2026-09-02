@@ -176,6 +176,8 @@ async def test_the_router_gets_the_tools_and_the_context_provider(tmp_path, no_t
         # silently absent is the failure that cost a whole release once.
         "remember_fact",
         "forget_fact",
+        # The clock, commissioned as job #9.
+        "current_time",
     }
     assert len(kwargs["context_providers"]) == 2
 

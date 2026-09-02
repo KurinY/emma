@@ -31,6 +31,7 @@ from core.llm import AnthropicLanguageModel, GroqLanguageModel, MissingDependenc
 from core.memory import SqliteConversationMemory
 from core.router import Router
 from core.tasks import TaskStore
+from tools.clock import clock_tools
 from tools.development import DevelopmentContext, development_tools
 from tools.facts import FactsContext, FactStore, facts_tools
 from tools.introspection import introspection_tools
@@ -107,7 +108,12 @@ def create_app(config: Config) -> FastAPI:
         llm=llm,
         memory=memory,
         system_prompt=system_prompt,
-        tools=(*development_tools(tasks), *introspection_tools(), *facts_tools(facts)),
+        tools=(
+            *development_tools(tasks),
+            *introspection_tools(),
+            *facts_tools(facts),
+            *clock_tools(),
+        ),
         # The queue's shape goes in front of the model on every turn rather
         # than waiting to be asked for: whether a tool gets called is the
         # model's decision, and it repeated a stale answer four times in ten
