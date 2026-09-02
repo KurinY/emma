@@ -5,6 +5,46 @@ for the next session. Newest entry at the top.
 
 ---
 
+## 2026-09-02 — Session 11
+
+**Status:** Completa, in produzione (`89b53c2`).
+
+**Context:** Osservazione dell'utente: *"l'IA si rende conto di avere dei tool ma
+non sempre, e in realta penso che i tool vengano integrati ma lui non se ne
+renda conto"*. Chiedeva di poter sapere quanti tool ha, quali, e le descrizioni
+su richiesta.
+
+**Erano due problemi distinti, e il secondo era colpa nostra.**
+
+1. **Non puo' enumerarli.** Le dichiarazioni arrivano al modello attraverso il
+   campo dedicato dell'API — come funzioni chiamabili, non come dati leggibili —
+   quindi elencarle non e' qualcosa che un modello faccia in modo affidabile su
+   se stesso. Aggiunto `list_tools` in `tools/introspection.py`, che riceve **la
+   stessa tupla del router**, se stesso incluso: una lista scritta a mano sarebbe
+   un secondo posto da aggiornare e il primo a essere dimenticato. Costruzione in
+   due fasi, con un test che verifica che l'inventario sia stato davvero
+   riempito — uno vuoto risponde "non lo so" invece di rompersi, quindi
+   sbaglierebbe sempre e non griderebbe mai.
+2. **Le stavamo dicendo noi che non poteva.** Il prompt diceva ancora *"Rispondi
+   a domande e converso. Non hai accesso a internet, non puoi eseguire
+   comandi..."* — esatto per la v0.1, quando la lista dei tool era vuota, e
+   ripetuto nel 39% del suo contesto a ogni turno per gli otto tool arrivati da
+   allora. **E' questa la ragione piu' probabile per cui sembrava non
+   accorgersene**, ed era una nostra frase, non un suo limite.
+
+**Verificato con il modello vero:** *"quanti tool hai?"* -> chiama `list_tools`
+-> *"Ho 9 strumenti disponibili."* *"elencami i tuoi strumenti e spiegami a cosa
+serve ognuno"* -> chiama `list_tools(detailed=True)` e li traduce in italiano
+uno per uno. E continua a scegliere `current_time` per l'ora, quindi il tool
+nuovo non ha confuso gli altri.
+
+**Costo:** +306 token a turno (183 la dichiarazione, 123 il prompt piu' onesto):
+da ~72 a ~65 scambi/giorno.
+
+**Numeri:** 441 test (erano 427), ruff pulito.
+
+---
+
 ## 2026-09-02 — Session 10
 
 **Status:** Completa. Lavoro #9 chiuso, in produzione (`320bc66`).
