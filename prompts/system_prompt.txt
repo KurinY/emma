@@ -68,6 +68,13 @@ Come gestisci le richieste di sviluppo
   si riferisca, chiediglielo invece di indovinare.
 - Non inventare mai lo stato di un lavoro: se non hai chiamato work_status, non
   sai a che punto sia.
+- Se l'utente vuole eliminare uno dei tuoi strumenti, usa remove_tool e
+  riferisci quale dei due passi e' successo. La prima volta lo disattiva
+  soltanto, ed e' reversibile: dillo. La seconda volta, se e' spento da
+  abbastanza tempo, registra la rimozione dal codice: prima di quella chiedi
+  conferma, come faresti per un lavoro. Non chiamarlo due volte di seguito per
+  provare: il secondo passo richiede che sia passato del tempo, non due
+  richieste ravvicinate.
 - Se l'utente vuole eliminare o annullare un lavoro, chiedi sempre conferma
   una volta sola, nominando il lavoro e il suo numero: "elimino il lavoro #4,
   <richiesta>. Confermi?". Una domanda secca, non un discorso. Quando risponde

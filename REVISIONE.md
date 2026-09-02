@@ -1795,8 +1795,53 @@ dichiarazioni, da ~65 a ~59 scambi al giorno. Vale la pena dirlo perche' e' il
 tipo di aggiunta che si paga per sempre e si usa raramente — se un giorno la
 quota stringesse, questi due sono fra i primi candidati a essere spenti da soli.
 
-**Verdetto: fatta, 25 test, e la complessita' e' rimasta dove previsto perche'
-il router costruiva gia' le dichiarazioni una volta per turno.**
+### Rivista il 3 settembre 2026, e corretta in tre punti
+
+Revisione richiesta dall'utente e affidata a un revisore separato, con contesto
+costruito apposta invece della cronologia della sessione. Ha trovato tre cose
+vere, e la prima e' la piu' istruttiva.
+
+**1. "Gia' spento" era un contatore, non una prova.** `disabled_at` veniva
+scritto e mai letto. Un turno permette fino a cinque giri di strumenti, quindi
+il modello poteva spegnere un tool e chiederne la rimozione **nello stesso
+respiro**. Il codice imponeva due chiamate; i documenti — questo compreso —
+promettevano due occasioni. Aggiunta `MIN_TIME_OFF_SECONDS` (un'ora), e adesso
+la frase e' vera. Da notare: e' una piccola deviazione dal progetto originale
+dell'utente, che diceva "solo se gia' disattivato" e non parlava di tempo. Il
+tempo e' cio' che rende vera la *motivazione* che aveva dato.
+
+**2. Il cancello era vecchio per il resto del turno, e il commento che diceva
+il contrario l'avevo scritto io.** Diceva *"nessuno dei due puo' cambiare sotto
+l'assistente a meta' turno"* — vero prima di questa funzione, falso **a causa**
+di questa funzione: spegnere un tool e' a sua volta un tool. Conseguenza
+visibile: EMMA diceva *"da adesso non lo uso piu'"* e lo usava nel giro
+successivo. Ora le dichiarazioni si ricalcolano a ogni giro.
+
+Scrivendo il test e' emerso un buco piu' stretto ancora: il modello puo'
+emettere `remove_tool(x)` e `x` **nello stesso giro**, e l'insieme letto a
+inizio giro sarebbe gia' vecchio. Quindi il rifiuto in esecuzione ora consulta
+il cancello al momento della chiamata invece di riceverlo. Costo: una query
+indicizzata per chiamata di tool.
+
+**3. Il router non aveva un solo test.** Store e tool erano coperti a fondo; il
+router porta due dei quattro requisiti ed era la parte non testata. L'avevo
+dimostrata a mano in uno script buttato via — cioe' esattamente il tipo di prova
+che sparisce. Ora `tests/test_router_gate.py`, e `core/router.py` e' al **100%**.
+
+**Corretti anche:** `PROTECTED` applicato anche nello store (una guardia in un
+posto solo ha una porta di servizio accanto); niente lavori duplicati alla terza
+richiesta; una riga che sopravvive al tool che nomina non viene piu' contata da
+`list_tools` (diceva "di cui 1 disattivati" senza marcarne nessuno); il mixin
+condiviso rifiuta invece di saltare la validazione quando non e' stato cablato;
+`EnableTool` non eredita piu' un mixin che non usa.
+
+**Una precisazione dove la revisione calcava troppo:** il secondo stadio non
+cancella codice, registra un lavoro in coda che un umano legge e che
+`abandon_development` puo' togliere. Meno irreversibile di come veniva
+descritto — ma la sostanza reggeva, perche' i documenti promettevano una prova
+che il codice non forniva.
+
+**Verdetto: fatta e rivista. 490 test, `core/router.py` al 100%.**
 
 **Nota collegata:** l'utente ha anche osservato che un giorno servira' *"un tool
 per la personalizzazione"* — il nome dell'utente e' stato tolto dal prompt
@@ -1829,7 +1874,7 @@ versionato.
 | 16.4 | Snapshot periodici | fase futura, se la finestra di perdita risultasse troppo larga |
 | 17 | EMMA committente del proprio sviluppo | **da fare come v0.3**: tre tool, coda nel database, checkpoint 1/3/4/5 |
 | 18 | Memoria di fatti persistenti | fase futura |
-| 24 | Rimuovere un tool in due stadi | **fatta** il 2 settembre 2026 (idea dell'utente) |
+| 24 | Rimuovere un tool in due stadi | **fatta e rivista**; la revisione ha trovato che "gia' spento" era un contatore e non una prova |
 | 23 | Accorgersi di un lavoro a sessione aperta | **fatti tutti e tre i casi**; l'attivita' pianificata e' stata disattivata: finestra lampeggiante per un guadagno marginale |
 | 22 | Il deploy sovrascrive e non sincronizza | **la C** (`rsync --delete`): un modulo cancellato resta importabile in produzione |
 | 21 | Lock per conversazione nel router | non ora; **primo passo del satellite vocale**, prima del secondo canale |

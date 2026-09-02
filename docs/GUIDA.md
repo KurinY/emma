@@ -889,9 +889,20 @@ al prossimo riavvio, dal messaggio dopo — e lo riaccendi quando vuoi. Se gliel
 chiedi una seconda volta **mentre e' ancora spento**, allora registra il lavoro
 per toglierlo davvero dalla codebase.
 
-Il secondo passo non e' una formalita': "gia' spento" vuol dire che ne hai fatto
-a meno per un po' e non ti e' mancato. La parte irreversibile non capita mai
-alla prima richiesta.
+Il secondo passo non e' una formalita', ed e' **misurato**: dev'essere passata
+almeno un'ora dallo spegnimento. Senza quella soglia "due richieste" sarebbe
+solo un contatore — un turno permette piu' giri di strumenti, quindi lei
+potrebbe spegnere e chiedere la rimozione nello stesso respiro, senza aver
+imparato niente in mezzo. Con la soglia, "gia' spento" vuol dire davvero che ne
+hai fatto a meno.
+
+Se lo chiedi troppo presto te lo dice, e ti dice quanto manca. L'ora e' una
+scelta: abbastanza perche' nessuna singola conversazione la attraversi, poco
+perche' chi ha deciso sul serio non aspetti fino a domani. Si cambia in una
+riga (`MIN_TIME_OFF_SECONDS`).
+
+E chiedere una terza volta non apre un secondo lavoro: ti risponde qual e' il
+numero di quello che c'e' gia'.
 
 Due strumenti non si possono spegnere, `list_tools` e `enable_tool`: senza il
 primo non sapresti cosa e' spento, senza il secondo non potresti riaccenderlo —

@@ -24,9 +24,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from core import version
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from core.router import ToolGate
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +87,7 @@ class ToolInventory:
         },
     }
 
-    def __init__(self, gate: Any | None = None) -> None:
+    def __init__(self, gate: ToolGate | None = None) -> None:
         """Build the tool with nothing to describe yet.
 
         Args:
@@ -126,7 +129,12 @@ class ToolInventory:
         if not self._tools:  # pragma: no cover - a wiring mistake, not a state
             return "Non lo so: l'elenco degli strumenti non mi e' stato passato."
 
-        off = await self._switched_off()
+        registered = {tool.name for tool in self._tools}
+        # Intersected, because a row outlives the tool it names: after a
+        # removal job is carried out the name is still switched off but no
+        # longer registered, and counting it would print "di cui 1
+        # disattivati" with nothing in the list marked.
+        off = await self._switched_off() & registered
         detailed = bool(arguments.get("detailed", False))
         count = len(self._tools)
         opening = f"Ho {count} strumenti" if count != 1 else "Ho 1 strumento"

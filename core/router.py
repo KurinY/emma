@@ -389,14 +389,21 @@ class Router:
             LLMUnavailableError: Propagated from the model client so that
                 :meth:`handle` can turn it into a polite message.
         """
-        # Both gathered once per turn, not once per tool round: neither can
-        # change under the assistant mid-turn, and re-reading them every round
-        # would pay for them several times over for the same answer.
-        switched_off = await self._switched_off()
-        tool_schemas = self._tool_schemas(switched_off)
+        # Gathered once per turn: the state behind it cannot change under the
+        # assistant mid-turn, and re-reading it every round would pay for it
+        # several times over for the same answer.
         system = await self._system_prompt_now()
 
         for iteration in range(1, self.max_tool_iterations + 1):
+            # The gate, unlike the prompt, *can* change mid-turn: switching a
+            # tool off is itself done by a tool. Read once per turn it was
+            # stale for the rest of it, so a tool switched off in round one was
+            # still offered and still ran in round two -- the assistant saying
+            # "da adesso non lo uso piu'" and then using it. One indexed lookup
+            # against a table of a few rows, beside an LLM round-trip.
+            switched_off = await self._switched_off()
+            tool_schemas = self._tool_schemas(switched_off)
+
             reply = await self.llm.complete(
                 system=system,
                 messages=messages,
@@ -420,9 +427,7 @@ class Router:
             results: list[dict[str, Any]] = []
             for call in tool_uses:
                 logger.info("tool round %d: running %s(%s)", iteration, call.name, call.input)
-                results.append(
-                    await self._execute_tool(call.id, call.name, call.input, switched_off)
-                )
+                results.append(await self._execute_tool(call.id, call.name, call.input))
             messages.append({"role": "user", "content": results})
 
         return self._degrade(
@@ -436,7 +441,6 @@ class Router:
         call_id: str,
         name: str,
         arguments: dict[str, Any],
-        switched_off: frozenset[str] = frozenset(),
     ) -> dict[str, Any]:
         """Run one tool and wrap its outcome in a ``tool_result`` block.
 
@@ -448,15 +452,19 @@ class Router:
             call_id: The ``tool_use`` id this result answers.
             name: Name of the requested tool.
             arguments: Arguments produced by the model.
-            switched_off: Names the gate reported as off for this turn.
 
         Returns:
             A ``tool_result`` content block.
         """
-        if name in switched_off:
-            # Reachable when a call was already in flight from a turn where the
-            # tool was still offered. Answered rather than ignored, so the model
-            # can say why instead of falling silent.
+        # Asked here rather than taken from the round's declarations, because
+        # a round can switch a tool off and call it in the same breath: the
+        # model may emit remove_tool(x) and x together, and the set read before
+        # the round would still say x is available. One indexed lookup per tool
+        # call against a table of a few rows.
+        if name in await self._switched_off():
+            # Also reachable when a call was in flight from an earlier round.
+            # Answered rather than ignored, so the model can say why instead of
+            # falling silent.
             logger.info("refused '%s': switched off", name)
             return _tool_result(
                 call_id,

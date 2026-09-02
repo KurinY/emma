@@ -20,10 +20,14 @@ change will always be listed here.
   only switches the tool off, and only a second request *while it is still off*
   registers the development job that takes it out of the code.
 
-  "Already off" is not a formality, it is evidence — the tool has been gone a
-  while and was not missed — so the irreversible half never happens on a first
-  request. It is the same philosophy as an abandoned job that is not deleted
-  and a corrupt database that is quarantined.
+  "Already off" is not a formality but evidence, and it is measured: at least
+  an hour must have passed. Without that the second stage would be a counter
+  rather than evidence — a turn allows several tool rounds, so the model could
+  switch a tool off and ask for its removal in the same breath, having learnt
+  nothing in between. Asking too soon says how much longer to wait; asking a
+  third time reports the job number that already exists rather than opening
+  another. Same philosophy as an abandoned job that is not deleted and a
+  corrupt database that is quarantined.
 
   Switching off takes effect on the next message rather than the next restart:
   the router already built its declarations once per turn, so a `ToolGate`
