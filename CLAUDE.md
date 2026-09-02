@@ -179,3 +179,39 @@ This rule holds whether the user is at the keyboard or reachable only through a
 message. Full permissions on the machine — so that nothing blocks where nobody
 can click — do not remove the need to ask; they move the asking into the
 conversation. The two are different layers, and only the first one is waived.
+
+## 9. Keep the tool list true in all five places
+
+Adding or removing a tool touches more than `main.py`, and one of the places is
+easy to forget for a long time. Between v0.1 and v0.3 eight tools were added
+while `prompts/system_prompt.txt` still said *"non puoi eseguire comandi"* — an
+accurate sentence when the tool list was empty, and then repeated to the model
+in 39% of its context on every single turn for months. The user noticed before
+any test did, because no test was looking.
+
+When the set of registered tools changes, update all five:
+
+| File | What |
+| --- | --- |
+| `main.py` | the registration itself |
+| `tests/test_main_lifespan.py` | the assertion on the exact set of names |
+| `docs/GUIDA.md` | the table of tools in chapter 3 |
+| `CHANGELOG.md` | it is user-visible |
+| `prompts/system_prompt.txt` | **the one that drifted** |
+
+The test on the exact set is a real guard and has caught every addition so far.
+Let it fail and update it deliberately; do not loosen it to a count.
+
+The prompt has no such guard, so it gets two rules instead:
+
+- **Never write the list of tools into the prompt.** Naming them there creates a
+  second inventory that will disagree with the first — as it already did, in the
+  very sentence forbidding the model to recite tools from memory. The prompt says
+  that tools exist and that `list_tools` is how to learn which. Nothing more.
+- **Never claim a capability that has no tool behind it.** Writing that she can
+  browse the web "on request" when no such tool exists does not make her
+  careful, it makes her confident and wrong: she will describe a search she
+  cannot perform, and a plausible wrong answer is the one nobody checks. A
+  capability she lacks is written as one not yet given, with the offer to
+  register it as a development job.
+

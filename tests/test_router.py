@@ -375,7 +375,7 @@ async def test_a_broken_store_does_not_reach_the_caller():
 async def test_the_history_is_still_read_when_the_store_works():
     """The guard must not have quietly stopped anyone from using memory."""
     router, _, memory = build_router([text_reply("prima"), text_reply("seconda")])
-    await router.handle(request("mi chiamo Matteo"))
+    await router.handle(request("mi chiamo Mario"))
 
     await router.handle(request("come mi chiamo?"))
 

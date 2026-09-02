@@ -113,7 +113,7 @@ def test_an_empty_required_variable_counts_as_missing(tmp_path):
 
 def test_a_user_id_that_is_not_a_number_says_so(tmp_path):
     """The commonest mistake: pasting the @handle instead of the numeric id."""
-    body = MINIMAL.replace("TELEGRAM_ALLOWED_USER_ID=4242", "TELEGRAM_ALLOWED_USER_ID=@matteo")
+    body = MINIMAL.replace("TELEGRAM_ALLOWED_USER_ID=4242", "TELEGRAM_ALLOWED_USER_ID=@nomeutente")
 
     with pytest.raises(ConfigError, match="TELEGRAM_ALLOWED_USER_ID"):
         load_config(env_file=write_env(tmp_path, body))

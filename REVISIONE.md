@@ -1738,6 +1738,49 @@ sessione: l'infrastruttura che questo progetto ha scelto di non avere. Renderlo 
 alla sessione, cioe' esattamente l'infrastruttura che questo progetto ha scelto
 di non avere.
 
+## 24. Rimuovere un tool in due stadi (proposta dell'utente, 2 settembre 2026)
+
+**L'idea e' sua, ed e' migliore della mia.** Avevo proposto una variabile in
+`.env` con l'elenco dei tool spenti, letta all'avvio. Lui ha proposto due stadi:
+alla prima richiesta il tool viene **solo disattivato**; alla seconda, e **solo
+se e' gia' in stato disattivato**, si procede con la rimozione dal codice.
+
+**Perche' e' meglio.** Il secondo stadio esiste gia': "togliere un tool dalla
+codebase" e' un normale lavoro nella coda di sviluppo. Quindi non e' un
+meccanismo nuovo, e' **un guardiano davanti a uno che c'e' gia'**. E il
+guardiano e' quello giusto: "solo se gia' disattivato" significa che si e'
+vissuto senza quel tool per un po', quindi la rimozione definitiva non e' mai
+una decisione presa a caldo. E' la stessa filosofia di `abandon` che non
+cancella e del database corrotto messo in quarantena.
+
+**Dove sta la complessita', e non e' dove sembra.** Il router costruisce le
+dichiarazioni con `_tool_schemas()` **a ogni turno** (`core/router.py`, riga
+362), non una volta in costruzione. E' un colpo di fortuna: filtrare i tool
+spenti costa poche righe li', senza rendere mutabile l'insieme che il router
+riceve e senza riavvio. L'effetto sarebbe immediato.
+
+**Le tre domande di progetto:**
+
+| | Domanda | Risposta proposta |
+| --- | --- | --- |
+| 1 | Dove vive lo stato "spento"? | Nel database, accanto ai fatti: sopravvive al riavvio, entra nel backup, e' ispezionabile |
+| 2 | Chi puo' spegnere? | Se e' un tool che EMMA chiama, puo' spegnere quello che serve a riaccendere. `list_tools` e il tool di riattivazione non devono essere spegnibili |
+| 3 | Cosa vede il modello? | Un tool spento sparisce dalle dichiarazioni, quindi non puo' chiamarlo; `list_tools` dovrebbe pero' poterli mostrare come "disattivati", altrimenti l'utente non sa cosa riaccendere |
+
+**Il costo:** un tool in piu' (spegni/riaccendi) pagato a ogni turno, piu' il
+filtro. Stimabile intorno ai 150-200 token/turno, cioe' ~4 scambi/giorno.
+
+**Verdetto: fattibile e ben progettato, la complessita' e' contenuta perche' il
+router lavora gia' per turno. Da fare quando serve davvero spegnere qualcosa:
+oggi nove tool sono pochi e la rimozione via coda basta.**
+
+**Nota collegata:** l'utente ha anche osservato che un giorno servira' *"un tool
+per la personalizzazione"* — il nome dell'utente e' stato tolto dal prompt
+perche' `prompts/system_prompt.txt` e' tracciato e pubblico (regola 7), ma un
+assistente personale che non sa come ti chiami e' una stranezza. La forma
+naturale e' la stessa dei fatti: dati personali nel database, non nel file
+versionato.
+
 ## Riepilogo dei verdetti
 
 | # | Voce | Verdetto |
@@ -1762,6 +1805,7 @@ di non avere.
 | 16.4 | Snapshot periodici | fase futura, se la finestra di perdita risultasse troppo larga |
 | 17 | EMMA committente del proprio sviluppo | **da fare come v0.3**: tre tool, coda nel database, checkpoint 1/3/4/5 |
 | 18 | Memoria di fatti persistenti | fase futura |
+| 24 | Rimuovere un tool in due stadi | **fattibile e ben progettata** (idea dell'utente); da fare quando servira' davvero |
 | 23 | Accorgersi di un lavoro a sessione aperta | **fatti tutti e tre i casi**; l'attivita' pianificata e' stata disattivata: finestra lampeggiante per un guadagno marginale |
 | 22 | Il deploy sovrascrive e non sincronizza | **la C** (`rsync --delete`): un modulo cancellato resta importabile in produzione |
 | 21 | Lock per conversazione nel router | non ora; **primo passo del satellite vocale**, prima del secondo canale |
