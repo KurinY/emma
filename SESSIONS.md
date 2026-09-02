@@ -5,6 +5,50 @@ for the next session. Newest entry at the top.
 
 ---
 
+## 2026-09-02 — Session 12
+
+**Status:** Completa, in produzione (`a3114df`).
+
+**Context:** L'utente ha fatto modifiche grezze a `prompts/system_prompt.txt` e
+ha chiesto una revisione, piu' una regola sulla lista dei tool e un parere sulla
+rimozione dei tool.
+
+**La modifica da correggere.** La sua bozza faceva dichiarare a EMMA capacita'
+inesistenti: *"hai accesso a internet solo su specifica richiesta... esegui
+comandi... leggi file e controlli la casa"*. Verificato: **nessuno di quei
+quattro tool esiste**. La frase vecchia era stantia nell'inquadramento ma vera
+nel contenuto; la nuova era falsa nella direzione piu' pericolosa, perche' un
+modello convinto di poter cercare sul web descrive una ricerca che non fa.
+Riscritta come capacita' *non ancora date*, con l'offerta di registrarle.
+
+**Altre correzioni:** una nota indirizzata a Claude Code era dentro il file che
+legge il modello; un punto orfano; due refusi. E **un difetto mio di un'ora
+prima**: il paragrafo che vieta di elencare i tool a memoria li elencava a
+memoria — sarebbe andato alla deriva al tool successivo esattamente come la
+frase vecchia.
+
+**Il nome tolto**, su sua richiesta: `prompts/system_prompt.txt` e' tracciato e
+pubblico (regola 7). Tolto anche da due fixture di test che lo contenevano.
+
+**Aggiunta la regola 9 a `CLAUDE.md`**: i cinque posti da aggiornare quando
+cambia l'insieme dei tool, con l'accento sul prompt, che e' l'unico senza
+guardia — otto tool sono stati aggiunti mentre diceva ancora *"non puoi eseguire
+comandi"*, e l'ha notato l'utente prima di qualsiasi test, perche' nessun test
+guardava li'.
+
+**`REVISIONE.md` voce 24:** la sua proposta di rimozione a due stadi
+(disattivazione, poi rimozione solo se gia' disattivato) e' migliore della mia
+con la variabile in `.env`. Il router costruisce le dichiarazioni **a ogni
+turno**, quindi filtrare i tool spenti costa poche righe e nessun riavvio.
+
+**Verificato in produzione:** *"cerca su internet le previsioni"* -> non chiama
+nulla, non inventa, propone di registrare un lavoro. *"come stai?"* -> "Sto
+bene, grazie! E tu?" senza recitare di essere un programma.
+
+**Numeri:** 441 test, ruff pulito. Prompt: ~1249 token (+25).
+
+---
+
 ## 2026-09-02 — Session 11
 
 **Status:** Completa, in produzione (`89b53c2`).
