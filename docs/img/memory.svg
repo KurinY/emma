@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 330" width="920" height="330" role="img" aria-labelledby="mem-title mem-desc" font-family="system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif">
+  <title id="mem-title">Two kinds of memory</title>
+  <desc id="mem-desc">The conversation is a sliding window: the oldest messages drop out of what the model is shown. Facts have no age and stay in context however old they are. Both are rows in the same SQLite file; only one of them expires.</desc>
+
+  <rect width="920" height="330" rx="18" fill="#12151E"/>
+  <rect x="0.5" y="0.5" width="919" height="329" rx="18" fill="none" stroke="#272D3D"/>
+
+  <!-- lane 1: the conversation -->
+  <text x="32" y="46" font-size="13.5" font-weight="600" fill="#C6CEDC">conversation</text>
+  <text x="124" y="46" font-size="11.5" fill="#6B7688">a sliding window, measured in messages</text>
+
+  <rect x="32" y="62" width="86" height="32" rx="9" fill="none" stroke="#39415A" stroke-dasharray="4 4"/>
+  <rect x="128" y="62" width="86" height="32" rx="9" fill="none" stroke="#39415A" stroke-dasharray="4 4"/>
+  <rect x="224" y="62" width="86" height="32" rx="9" fill="none" stroke="#39415A" stroke-dasharray="4 4"/>
+  <rect x="320" y="62" width="86" height="32" rx="9" fill="#1E2432"/>
+  <rect x="416" y="62" width="86" height="32" rx="9" fill="#1E2432"/>
+  <rect x="512" y="62" width="86" height="32" rx="9" fill="#1E2432"/>
+  <rect x="608" y="62" width="86" height="32" rx="9" fill="#1E2432"/>
+  <rect x="704" y="62" width="86" height="32" rx="9" fill="#1E2432"/>
+  <rect x="800" y="62" width="86" height="32" rx="9" fill="#4C6EF5"/>
+
+  <rect x="310" y="52" width="588" height="52" rx="12" fill="none" stroke="#4E5870" stroke-dasharray="5 5"/>
+  <text x="604" y="124" font-size="11.5" fill="#6B7688" text-anchor="middle">what the model is shown this turn</text>
+  <text x="120" y="124" font-size="11.5" fill="#7C8798" text-anchor="middle">no longer shown</text>
+
+  <!-- lane 2: the facts -->
+  <text x="32" y="182" font-size="13.5" font-weight="600" fill="#C6CEDC">facts</text>
+  <text x="80" y="182" font-size="11.5" fill="#6B7688">no age at all &#8212; they leave when you say so</text>
+
+  <rect x="32" y="196" width="854" height="46" rx="13" fill="#211C36" stroke="#8A63D2"/>
+  <text x="56" y="224" font-size="13" fill="#E4EAF3">mia figlia si chiama Sara</text>
+  <text x="232" y="224" font-size="11.5" fill="#6B7688">recorded once, still in context months later</text>
+  <text x="862" y="224" font-size="11.5" fill="#8A63D2" text-anchor="end">#1</text>
+
+  <!-- time axis -->
+  <path d="M32 272 H886" stroke="#2E3546"/>
+  <path d="M886 272 l-8 -4 v8 z" fill="#2E3546"/>
+  <text x="32" y="292" font-size="11.5" fill="#6B7688">older</text>
+  <text x="886" y="292" font-size="11.5" fill="#6B7688" text-anchor="end">now</text>
+
+  <text x="460" y="316" font-size="11.5" fill="#5B6577" text-anchor="middle">Both are rows in the same SQLite file on your disk. Only one of them expires.</text>
+</svg>

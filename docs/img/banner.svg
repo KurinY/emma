@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" width="1200" height="320" role="img" aria-labelledby="banner-title banner-desc" font-family="system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif">
+  <title id="banner-title">EMMA</title>
+  <desc id="banner-desc">A personal assistant that lives on your server and answers from Telegram. Your phone reaches the server through Telegram long polling, so nothing listens for inbound connections; the server calls the model API.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F1118"/>
+      <stop offset="55%" stop-color="#151926"/>
+      <stop offset="100%" stop-color="#1C2134"/>
+    </linearGradient>
+    <radialGradient id="glowPurple" cx="76%" cy="38%" r="46%">
+      <stop offset="0%" stop-color="#8A63D2" stop-opacity="0.32"/>
+      <stop offset="100%" stop-color="#8A63D2" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowTeal" cx="10%" cy="92%" r="44%">
+      <stop offset="0%" stop-color="#2DD4BF" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#2DD4BF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rule" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#8A63D2"/>
+      <stop offset="100%" stop-color="#2DD4BF"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="320" rx="18" fill="url(#bg)"/>
+  <rect width="1200" height="320" rx="18" fill="url(#glowPurple)"/>
+  <rect width="1200" height="320" rx="18" fill="url(#glowTeal)"/>
+  <rect x="0.5" y="0.5" width="1199" height="319" rx="18" fill="none" stroke="#2A3040"/>
+
+  <!-- wordmark -->
+  <text x="72" y="150" font-size="82" font-weight="700" letter-spacing="10" fill="#F2F5FA">EMMA</text>
+  <rect x="76" y="172" width="132" height="5" rx="2.5" fill="url(#rule)"/>
+
+  <text x="74" y="216" font-size="23" fill="#B9C2D0">A personal assistant that lives on your server.</text>
+  <text x="74" y="248" font-size="17" fill="#78849A">Your hardware, your conversations, your rules &#8212; and she can be asked</text>
+  <text x="74" y="272" font-size="17" fill="#78849A">to build her own next feature.</text>
+
+  <!-- illustration: phone, server, model -->
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, Liberation Mono, monospace">
+
+    <!-- phone -->
+    <rect x="722" y="96" width="98" height="156" rx="16" fill="#0D0F16" stroke="#3A4256" stroke-width="1.5"/>
+    <rect x="734" y="112" width="74" height="124" rx="7" fill="#161B28"/>
+    <rect x="742" y="124" width="46" height="10" rx="5" fill="#38415A"/>
+    <rect x="742" y="142" width="58" height="10" rx="5" fill="#38415A"/>
+    <rect x="752" y="160" width="48" height="10" rx="5" fill="#4C6EF5"/>
+    <rect x="742" y="178" width="40" height="10" rx="5" fill="#38415A"/>
+    <rect x="742" y="196" width="52" height="10" rx="5" fill="#38415A"/>
+    <rect x="758" y="240" width="26" height="3" rx="1.5" fill="#3A4256"/>
+    <text x="771" y="282" font-size="13" fill="#78849A" text-anchor="middle">your phone</text>
+
+    <!-- phone to server -->
+    <path d="M834 174 H886" stroke="#5A6480" stroke-width="1.6" stroke-dasharray="5 5"/>
+    <path d="M886 174 l-9 -5 v10 z" fill="#5A6480"/>
+    <text x="860" y="162" font-size="11" fill="#5A6480" text-anchor="middle">polling</text>
+
+    <!-- server -->
+    <rect x="900" y="106" width="126" height="136" rx="14" fill="#141926" stroke="#8A63D2" stroke-width="1.6"/>
+    <rect x="918" y="128" width="90" height="22" rx="6" fill="#1E2534"/>
+    <circle cx="931" cy="139" r="3.5" fill="#2DD4BF"/>
+    <rect x="944" y="135" width="46" height="4" rx="2" fill="#3A4256"/>
+    <rect x="918" y="160" width="90" height="22" rx="6" fill="#1E2534"/>
+    <circle cx="931" cy="171" r="3.5" fill="#2DD4BF"/>
+    <rect x="944" y="167" width="34" height="4" rx="2" fill="#3A4256"/>
+    <rect x="918" y="192" width="90" height="22" rx="6" fill="#1E2534"/>
+    <circle cx="931" cy="203" r="3.5" fill="#8A63D2"/>
+    <rect x="944" y="199" width="52" height="4" rx="2" fill="#3A4256"/>
+    <text x="963" y="282" font-size="13" fill="#9AA6BA" text-anchor="middle">your server</text>
+    <text x="963" y="88" font-size="11" fill="#77839A" text-anchor="middle">no inbound port</text>
+
+    <!-- server to model -->
+    <path d="M1040 174 H1086" stroke="#5A6480" stroke-width="1.6" stroke-dasharray="5 5"/>
+    <path d="M1086 174 l-9 -5 v10 z" fill="#5A6480"/>
+    <text x="1063" y="162" font-size="11" fill="#5A6480" text-anchor="middle">https</text>
+
+    <!-- model -->
+    <rect x="1098" y="140" width="66" height="68" rx="14" fill="#141926" stroke="#2DD4BF" stroke-width="1.6"/>
+    <rect x="1116" y="160" width="30" height="30" rx="7" fill="none" stroke="#2DD4BF" stroke-width="1.6"/>
+    <path d="M1124 154 v6 M1138 154 v6 M1124 190 v6 M1138 190 v6 M1110 168 h6 M1110 182 h6 M1146 168 h6 M1146 182 h6" stroke="#2DD4BF" stroke-width="1.6" stroke-linecap="round"/>
+    <text x="1131" y="282" font-size="13" fill="#78849A" text-anchor="middle">model API</text>
+
+  </g>
+</svg>

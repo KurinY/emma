@@ -10,7 +10,22 @@ change will always be listed here.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **The README was rewritten**, and the design was the smaller half of it. The
+  status box still said the project had "no tools, no persistence and no voice
+  yet" — true at v0.1, and the first sentence anyone read on GitHub. Three more
+  claims had gone stale the same way: `tools/` was missing from the repository
+  layout, `core/memory.py` was described as an in-memory window when it has been
+  SQLite since v0.2, and the privacy paragraph said the conversation "never
+  touches a third-party product" when Telegram carries every message.
+
+  It now opens with a hand-written SVG banner and shows three illustrations —
+  a real conversation, the two kinds of memory on one time axis, and the
+  architecture and a single turn as mermaid diagrams, which GitHub renders
+  itself. The sources are in `docs/img/`: plain SVG, no binaries, so a change
+  to them is reviewable in a diff.
+
 
 ## [0.4.0] - 2026-09-03
 
