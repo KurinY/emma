@@ -1,198 +1,198 @@
-# REVISIONE.md — revisione critica delle decisioni
+# REVISIONE.md — a critical review of the decisions
 
-**Questo documento è consultivo.** Il progetto è stato implementato esattamente
-come specificato: nessuna delle alternative descritte qui è stata applicata. Le
-valuti tu e decidi cosa adottare; finché non lo dici, in produzione resta la
-versione specificata.
+**This document is advisory.** The project was implemented exactly as
+specified: none of the alternatives described here has been applied. You weigh
+them and decide what to adopt; until you say so, what runs in production is the
+specified version.
 
-Per ogni voce trovi: la decisione così com'è stata specificata, se la ritengo la
-scelta migliore per *questo* contesto (sistema personale self-hosted, hardware
-modesto, progetto pubblico e manutenibile, evoluzione futura verso
-SQLite/skill/voce), l'alternativa concreta, pro e contro, e un verdetto fra
-**cambiamento da fare subito**, **da considerare in una fase futura** e **non
-vale la pena**.
-
----
-
-## 0. Correzioni e scostamenti dalla specifica
-
-Nessun errore oggettivo della specifica ha impedito il funzionamento: non ho
-dovuto correggere nulla per far girare il sistema. Ci sono però quattro
-scostamenti da dichiarare.
-
-**0.1 — Rinominato JARVIS in EMMA.** Su tua indicazione esplicita durante la
-lavorazione. Il nome compare ora in `emma.service`, `emma-backup.service`,
-`emma-backup.timer`, nella directory di progetto, nel default `BACKUP_DIR`
-(`/mnt/backup/emma`) e nel prompt di personalità. Nessun residuo del vecchio nome è rimasto nel codice, nei percorsi,
-nei nomi dei file o nella documentazione.
-
-**0.2 — `D:\JarvisBackups` è diventato `D:\EmmaBackups`.** Conseguenza diretta
-del punto precedente: la specifica indicava il primo, ma tenere un percorso di
-backup col vecchio nome sarebbe stato incoerente. È comunque un parametro:
-`-DestinationPath` lo sovrascrive senza toccare lo script.
-
-**0.3 — Nessun `__init__.py` in `adapters/`, `core/` e `tests/`.** La struttura
-richiesta elencava i file uno per uno e non li includeva, quindi ho usato i
-namespace package impliciti (PEP 420), che con Python 3.11 funzionano
-identicamente sia con `python main.py` sia con pytest (`pythonpath = ["."]` in
-`pyproject.toml`). Se preferisci i package espliciti è un'aggiunta di tre file
-vuoti e zero modifiche al codice.
-
-**0.4 — Gli oggetti richiesta/risposta vivono in `core/router.py`.** La
-specifica parla di "un oggetto richiesta interno standard" ma non prevede un
-file dove metterlo. `AssistantRequest` e `AssistantResponse` sono quindi
-definiti in `core/router.py` e importati da lì dagli adapter. L'alternativa —
-un `core/models.py` dedicato — è discussa al punto 12.
+For each entry you will find: the decision as it was specified, whether I think
+it is the best choice for *this* context (a self-hosted personal system, modest
+hardware, a public and maintainable project, future evolution towards
+SQLite/tools/voice), the concrete alternative, its pros and cons, and a verdict
+among **a change to make now**, **worth considering in a future phase** and
+**not worth it**.
 
 ---
 
-## 1. Pattern adapter
+## 0. Corrections and departures from the specification
 
-**Decisione specificata.** Il router riceve un oggetto richiesta interno
-standard (testo, user_id, conversation_id) e restituisce una risposta standard.
-Nessun import di Telegram dentro `core/`.
+No objective error in the specification stopped the system from working: I did
+not have to correct anything to get it running. There are, however, four
+departures to declare.
 
-**È la scelta migliore?** Sì, senza riserve. È la decisione più importante del
-progetto e quella che paga di più nelle fasi successive: quando arriverà il
-satellite vocale, il router non dovrà cambiare di una riga. Il costo oggi è
-minimo (due dataclass e una conversione di dieci righe nell'adapter), il
-beneficio è strutturale. In `adapters/telegram.py` l'unico punto di contatto è
-il metodo `_on_text_message`, che costruisce l'`AssistantRequest` e consuma
-l'`AssistantResponse`.
+**0.1 — JARVIS renamed to EMMA.** On your explicit instruction during the work.
+The name now appears in `emma.service`, `emma-backup.service`,
+`emma-backup.timer`, in the project directory, in the `BACKUP_DIR` default
+(`/mnt/backup/emma`) and in the personality prompt. No trace of the old name is
+left in the code, the paths, the file names or the documentation.
 
-**Alternativa concreta.** L'unica variante che avrei considerato è rendere la
-risposta più ricca fin da ora, per non doverla cambiare quando arriveranno voce
-e skill:
+**0.2 — `D:\JarvisBackups` became `D:\EmmaBackups`.** A direct consequence of
+the point above: the specification named the first, but keeping a backup path
+with the old name would have been inconsistent. It is a parameter in any case:
+`-DestinationPath` overrides it without touching the script.
+
+**0.3 — No `__init__.py` in `adapters/`, `core/` and `tests/`.** The required
+structure listed the files one by one and did not include them, so I used
+implicit namespace packages (PEP 420), which under Python 3.11 behave
+identically with both `python main.py` and pytest (`pythonpath = ["."]` in
+`pyproject.toml`). If you prefer explicit packages it is an addition of three
+empty files and zero changes to the code.
+
+**0.4 — The request/response objects live in `core/router.py`.** The
+specification speaks of "a standard internal request object" but does not
+provide a file to put it in. `AssistantRequest` and `AssistantResponse` are
+therefore defined in `core/router.py` and imported from there by the adapters.
+The alternative — a dedicated `core/models.py` — is discussed in entry 12.
+
+---
+
+## 1. The adapter pattern
+
+**The decision as specified.** The router receives a standard internal request
+object (text, user_id, conversation_id) and returns a standard response. No
+Telegram import inside `core/`.
+
+**Is it the best choice?** Yes, without reservation. It is the most important
+decision in the project and the one that pays off most in the later phases: when
+the voice satellite arrives, the router will not have to change by one line. The
+cost today is minimal (two dataclasses and a ten-line conversion in the
+adapter), the benefit is structural. In `adapters/telegram.py` the only point of
+contact is the `_on_text_message` method, which builds the `AssistantRequest`
+and consumes the `AssistantResponse`.
+
+**The concrete alternative.** The only variant I would have considered is making
+the response richer straight away, so as not to have to change it when voice and
+tools arrive:
 
 ```python
 @dataclass(frozen=True, slots=True)
 class AssistantResponse:
-    text: str                      # ciò che va detto o scritto
+    text: str                      # what is to be said or written
     degraded: bool = False
-    attachments: tuple[Attachment, ...] = ()   # immagini, file, audio
-    metadata: Mapping[str, Any] = field(default_factory=dict)  # latenza, token, tool usati
+    attachments: tuple[Attachment, ...] = ()   # images, files, audio
+    metadata: Mapping[str, Any] = field(default_factory=dict)  # latency, tokens, tools used
 ```
 
-Con `attachments` l'adapter Telegram saprebbe già inviare un'immagine e quello
-vocale saprebbe che c'è un file audio da riprodurre; con `metadata` potresti
-loggare costo e latenza per messaggio senza sporcare il testo.
+With `attachments` the Telegram adapter would already know how to send an image
+and the voice one would know there is an audio file to play; with `metadata` you
+could log cost and latency per message without polluting the text.
 
-**Pro dell'alternativa.** Evita una modifica incompatibile all'interfaccia
-quando aggiungerai skill che producono file o grafici; abilita subito
-osservabilità per messaggio.
+**In favour of the alternative.** It avoids an incompatible change to the
+interface when you add tools that produce files or charts; it enables
+per-message observability immediately.
 
-**Contro.** Oggi sarebbero campi sempre vuoti: complessità pagata in anticipo
-per un caso d'uso che non esiste ancora, e `Attachment` andrebbe progettato al
-buio senza sapere quali skill arriveranno davvero. Il `degraded` che ho aggiunto
-serve invece già adesso (distingue una risposta vera da un messaggio di
-cortesia).
+**Against.** Today they would be permanently empty fields: complexity paid in
+advance for a use case that does not yet exist, and `Attachment` would have to
+be designed blind, without knowing which tools will really arrive. The
+`degraded` field I did add is already earning its place (it distinguishes a real
+answer from a courtesy message).
 
-**Verdetto: non vale la pena** ora. Aggiungere un campo opzionale a una
-dataclass frozen è un'operazione retrocompatibile: si farà quando la prima skill
-avrà bisogno di restituire qualcosa che non è testo.
-
----
-
-## 2. Router già in forma di ciclo agentico
-
-**Decisione specificata.** Usare il tool-use dell'API Anthropic con il ciclo
-completo (chiama → se `tool_use` esegui e rimanda → ripeti), anche con lista
-tool vuota, e con una firma che permetta di registrare tool futuri senza
-modificare il router.
-
-**È la scelta migliore?** Sì. È l'altra decisione che vale davvero: scrivere il
-ciclo adesso costa una trentina di righe, riscriverlo dopo significherebbe
-rifare i test e ripensare la memoria. La firma `Router(llm, memory,
-system_prompt, tools=(), max_tool_iterations=5)` accetta qualunque oggetto che
-rispetti il protocollo `Tool` (`name`, `description`, `input_schema`, `async
-run()`), quindi registrare una skill è una riga in `main.py`.
-
-Ho aggiunto due protezioni che la specifica non chiedeva ma che il ciclo rende
-necessarie, e che considero parte dell'implementazione corretta, non
-un'estensione: un tetto al numero di round (`max_tool_iterations`), perché un
-modello che continua a chiedere tool produrrebbe altrimenti una sequenza
-illimitata e a pagamento; e il contenimento delle eccezioni dei tool, che
-vengono restituite al modello come `tool_result` con `is_error`, così una skill
-difettosa non fa cadere il turno.
-
-**Alternativa concreta.** Usare il *tool runner* del SDK ufficiale
-(`client.beta.messages.tool_runner`), che implementa il ciclo per conto suo: si
-registrano funzioni Python decorate e il SDK gestisce chiamata, esecuzione e
-reinvio.
-
-**Pro dell'alternativa.** Meno codice nostro da mantenere; il ciclo lo aggiorna
-Anthropic quando il protocollo evolve.
-
-**Contro.** È in beta, quindi l'interfaccia può cambiare sotto di noi in un
-progetto che punta alla stabilità; e soprattutto lega il *cuore* del sistema al
-SDK. Oggi `core/llm.py` è l'unico file che importa `anthropic`: se un domani
-volessi provare un modello locale su hardware tuo — cosa perfettamente
-plausibile per un assistente self-hosted — basterebbe una seconda
-implementazione di `LanguageModel`. Con il tool runner il ciclo agentico stesso
-sarebbe proprietà del SDK.
-
-**Verdetto: non vale la pena.** Il ciclo scritto a mano sta in trenta righe, è
-testato offline e ci compra l'indipendenza dal fornitore. Da riconsiderare solo
-se il protocollo tool-use diventasse molto più complesso di così.
+**Verdict: not worth it** now. Adding an optional field to a frozen dataclass is
+a backwards-compatible operation: it will be done when the first tool needs to
+return something that is not text.
 
 ---
 
-## 3. Whitelist utente
+## 2. A router already shaped as an agentic loop
 
-**Decisione specificata.** Il bot risponde solo all'ID in
-`TELEGRAM_ALLOWED_USER_ID` e ignora silenziosamente chiunque altro.
+**The decision as specified.** Use the Anthropic API's tool use with the full
+loop (call → if `tool_use`, run and send back → repeat), even with an empty tool
+list, and with a signature that allows future tools to be registered without
+modifying the router.
 
-**È la scelta migliore?** Sì, per la v1. Il silenzio è la risposta giusta: un
-"non sei autorizzato" confermerebbe a uno sconosciuto che il bot è vivo e
-presidiato. L'ID numerico non è indovinabile e non cambia mai, a differenza
-dello username. Il controllo è esplicito nell'handler (non un filtro PTB) solo
-perché così posso loggare il tentativo a livello WARNING: se qualcuno trova il
-bot, te ne accorgi da `journalctl`.
+**Is it the best choice?** Yes. It is the other decision that really pays:
+writing the loop now costs thirty lines or so, rewriting it later would mean
+redoing the tests and rethinking the memory. The signature `Router(llm, memory,
+system_prompt, tools=(), max_tool_iterations=5)` accepts any object satisfying
+the `Tool` protocol (`name`, `description`, `input_schema`, `async run()`), so
+registering a tool is one line in `main.py`.
 
-**Alternativa concreta.** Una whitelist multipla, `TELEGRAM_ALLOWED_USER_IDS`
-come lista separata da virgole, parsata in `config.py` in un `frozenset[int]`,
-con il controllo che diventa `user.id in allowed_ids`. Costo: cinque righe.
+I added two protections the specification did not ask for but which the loop
+makes necessary, and which I consider part of a correct implementation rather
+than an extension: a ceiling on the number of rounds (`max_tool_iterations`),
+because a model that keeps asking for tools would otherwise produce an unbounded
+and billable sequence; and containment of tool exceptions, which are returned to
+the model as a `tool_result` with `is_error`, so that a faulty tool does not
+bring the turn down.
 
-**Pro dell'alternativa.** Il giorno in cui volessi far usare l'assistente anche
-a un familiare non serve una modifica di codice, e la memoria è già isolata per
-`conversation_id` quindi le conversazioni non si mescolerebbero.
+**The concrete alternative.** Use the official SDK's *tool runner*
+(`client.beta.messages.tool_runner`), which implements the loop itself: you
+register decorated Python functions and the SDK handles the call, the execution
+and the resend.
 
-**Contro.** Multiutente vero significa anche permessi per skill (chi può
-spegnere le luci? chi può leggere le note?) e quota di spesa per utente: la
-whitelist plurale darebbe l'illusione di supportare più persone senza
-supportarne davvero il modello di sicurezza. Meglio affrontarlo quando esistono
-le skill.
+**In favour of the alternative.** Less code of our own to maintain; the loop is
+updated by Anthropic as the protocol evolves.
 
-**Verdetto: da considerare in una fase futura**, insieme alle skill — non prima,
-perché prima è solo una lista più lunga senza semantica.
+**Against.** It is in beta, so the interface can change underneath us in a
+project that aims at stability; and above all it ties the *heart* of the system
+to the SDK. Today `core/llm.py` is the only file that imports `anthropic`: if
+one day you wanted to try a local model on your own hardware — perfectly
+plausible for a self-hosted assistant — a second implementation of
+`LanguageModel` would be enough. With the tool runner, the agentic loop itself
+would be the SDK's property.
+
+**Verdict: not worth it.** The hand-written loop fits in thirty lines, is tested
+offline and buys us independence from the vendor. To be reconsidered only if the
+tool-use protocol became much more complex than this.
 
 ---
 
-## 4. Configurazione solo da .env
+## 3. The user whitelist
 
-**Decisione specificata.** `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`,
+**The decision as specified.** The bot answers only the ID in
+`TELEGRAM_ALLOWED_USER_ID` and silently ignores everybody else.
+
+**Is it the best choice?** Yes, for v1. Silence is the right answer: a "you are
+not authorised" would confirm to a stranger that the bot is alive and attended.
+The numeric ID is not guessable and never changes, unlike the username. The
+check is explicit in the handler (not a PTB filter) only so that I can log the
+attempt at WARNING level: if somebody finds the bot, you see it in `journalctl`.
+
+**The concrete alternative.** A multiple whitelist,
+`TELEGRAM_ALLOWED_USER_IDS` as a comma-separated list, parsed in `config.py`
+into a `frozenset[int]`, with the check becoming `user.id in allowed_ids`. Cost:
+five lines.
+
+**In favour of the alternative.** The day you wanted a family member to use the
+assistant too, no code change would be needed, and the memory is already
+isolated by `conversation_id` so the conversations would not mix.
+
+**Against.** Real multi-user also means per-tool permissions (who can turn the
+lights off? who can read the notes?) and a spending quota per user: a plural
+whitelist would give the illusion of supporting several people without really
+supporting their security model. Better to face it when the tools exist.
+
+**Verdict: worth considering in a future phase**, together with the tools — not
+before, because before then it is only a longer list with no semantics.
+
+---
+
+## 4. Configuration from `.env` only
+
+**The decision as specified.** `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`,
 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_ID`, `MAX_HISTORY_MESSAGES`,
 `SYSTEM_PROMPT_PATH`, `BACKUP_DIR`, `BACKUP_KEEP`.
 
-**È la scelta migliore?** Sì. Un file, un formato, nessuna gerarchia di
-sorgenti da spiegare nella guida. `config.py` valida tutto all'avvio e fallisce
-con un messaggio che nomina la variabile colpevole, così un `.env` sbagliato si
-diagnostica in un colpo d'occhio invece che al primo messaggio.
+**Is it the best choice?** Yes. One file, one format, no hierarchy of sources to
+explain in the guide. `config.py` validates everything at startup and fails with
+a message naming the guilty variable, so a wrong `.env` is diagnosed at a glance
+instead of on the first message.
 
-Due osservazioni sull'insieme di variabili così com'è.
+Two observations about the set of variables as it stands.
 
-`BACKUP_DIR` e `BACKUP_KEEP` sono le uniche due che l'applicazione non usa mai:
-le consuma `scripts/backup.sh`, che legge il `.env` per conto suo. `config.py`
-le carica e le valida comunque, perché la specifica le elenca fra le variabili
-di configurazione e perché così un `BACKUP_KEEP=zero` viene scoperto all'avvio
-del servizio e non alle 3:30 di notte, quando il timer fallisce in silenzio.
+`BACKUP_DIR` and `BACKUP_KEEP` are the only two the application never uses:
+`scripts/backup.sh` consumes them, reading the `.env` on its own account.
+`config.py` loads and validates them all the same, because the specification
+lists them among the configuration variables and because this way a
+`BACKUP_KEEP=zero` is discovered when the service starts and not at half past
+three in the morning, when the timer fails silently.
 
-Non ho aggiunto variabili non richieste. Le due che mi sarebbero servite più
-spesso, e che quindi propongo qui, sono `LOG_LEVEL` (oggi INFO fisso: per
-debuggare un problema devi modificare `main.py`) e `ANTHROPIC_MAX_TOKENS` (oggi
-2048 fisso in `core/llm.py`).
+I added no variables that were not asked for. The two I would have wanted most
+often, and therefore propose here, are `LOG_LEVEL` (today fixed at INFO: to
+debug a problem you have to edit `main.py`) and `ANTHROPIC_MAX_TOKENS` (today
+fixed at 2048 in `core/llm.py`).
 
-**Alternativa concreta.** Sostituire il caricamento manuale con
+**The concrete alternative.** Replace the manual loading with
 `pydantic-settings`:
 
 ```python
@@ -205,53 +205,53 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 ```
 
-Validazione dichiarativa, tipi controllati, `SecretStr` che impedisce alla
-chiave di finire in un log o in un traceback, `extra="forbid"` che segnala un
-refuso in un nome di variabile invece di ignorarlo.
+Declarative validation, checked types, a `SecretStr` that stops the key ending
+up in a log or a traceback, `extra="forbid"` that reports a typo in a variable
+name instead of ignoring it.
 
-**Pro dell'alternativa.** Meno codice a mano (`config.py` passerebbe da ~200 a
-~60 righe), messaggi d'errore ottimi, e `SecretStr` è una protezione reale.
+**In favour of the alternative.** Less hand-written code (`config.py` would go
+from ~200 to ~60 lines), excellent error messages, and `SecretStr` is real
+protection.
 
-**Contro.** Una dipendenza in più — anche se pydantic è già installato come
-dipendenza di FastAPI, quindi il costo effettivo è solo `pydantic-settings`. E
-un file scritto a mano è più leggibile per chi arriva al progetto senza
-conoscere pydantic, che per un progetto pubblico didattico conta.
+**Against.** One more dependency — though pydantic is already installed as a
+FastAPI dependency, so the actual cost is only `pydantic-settings`. And a
+hand-written file is more readable for somebody who comes to the project without
+knowing pydantic, which matters for a public, didactic project.
 
-**Verdetto: da considerare in una fase futura.** Il momento giusto è quando le
-variabili passeranno da otto a quindici (voce e skill ne porteranno parecchie):
-a quel punto la validazione dichiarativa vince nettamente. Nel frattempo
-suggerisco solo di aggiungere `LOG_LEVEL`, che è la variabile che rimpiangerai
-la prima volta che qualcosa si comporta in modo strano in produzione.
+**Verdict: worth considering in a future phase.** The right moment is when the
+variables go from eight to fifteen (voice and tools will bring a fair few): at
+that point declarative validation wins clearly. In the meantime I suggest only
+adding `LOG_LEVEL`, which is the variable you will miss the first time something
+behaves strangely in production.
 
 ---
 
-## 5. Resilienza: retry con backoff
+## 5. Resilience: retry with backoff
 
-**Decisione specificata.** Retry con backoff esponenziale (3 tentativi) sulle
-chiamate API; se falliscono tutti, risposta di cortesia; mai crash, mai
-silenzio.
+**The decision as specified.** Retry with exponential backoff (3 attempts) on
+API calls; if they all fail, a courtesy answer; never a crash, never silence.
 
-**È la scelta migliore?** Nella sostanza sì: tre tentativi con attesa 1s e 2s
-assorbono un blip di rete o un 529 di sovraccarico senza che tu te ne accorga, e
-il messaggio di cortesia con il processo vivo è esattamente il comportamento
-giusto per un assistente domestico. Ho disattivato i retry interni del SDK
-(`max_retries=0`) perché altrimenti i tentativi reali sarebbero stati 3×3 = 9,
-con attese moltiplicate e log illeggibili.
+**Is it the best choice?** In substance yes: three attempts with waits of 1s and
+2s absorb a network blip or a 529 overload without you noticing, and the
+courtesy message with the process still alive is exactly the right behaviour for
+a home assistant. I disabled the SDK's internal retries (`max_retries=0`)
+because otherwise the real number of attempts would have been 3×3 = 9, with
+multiplied waits and unreadable logs.
 
-C'è un punto che avrei fatto diversamente, ed è l'unico di tutta la specifica
-su cui ho un'obiezione tecnica concreta: **oggi vengono ritentati anche gli
-errori che non possono avere successo al secondo tentativo.** Una chiave API
-sbagliata restituisce 401, e il codice attuale la ritenta tre volte, aspettando
-tre secondi prima di risponderti. Funziona (il criterio di accettazione è
-rispettato: ricevi il messaggio di cortesia e il processo resta vivo) ma sono
-tre secondi e tre chiamate sprecate per un errore la cui risposta è già certa.
+There is one point I would have done differently, and it is the only one in the
+whole specification on which I have a concrete technical objection: **today even
+errors that cannot succeed on a second attempt are retried.** A wrong API key
+returns 401, and the current code retries it three times, waiting three seconds
+before answering you. It works (the acceptance criterion is met: you get the
+courtesy message and the process stays alive) but it is three seconds and three
+calls wasted on an error whose answer is already certain.
 
-**Alternativa concreta.** Distinguere gli errori ritentabili da quelli
-definitivi in `core/llm.py`:
+**The concrete alternative.** Distinguish retryable errors from final ones in
+`core/llm.py`:
 
 ```python
 RETRYABLE = (
-    anthropic.APIConnectionError,   # rete assente, DNS, TLS
+    anthropic.APIConnectionError,   # no network, DNS, TLS
     anthropic.APITimeoutError,
     anthropic.RateLimitError,       # 429
     anthropic.InternalServerError,  # 5xx
@@ -260,70 +260,70 @@ RETRYABLE = (
 
 except anthropic.AnthropicError as exc:
     if not isinstance(exc, RETRYABLE):
-        raise LLMUnavailableError(f"errore definitivo: {exc}") from exc
-    ...backoff e ritenta...
+        raise LLMUnavailableError(f"final error: {exc}") from exc
+    ...backoff and retry...
 ```
 
-Aggiungerei anche un jitter (`delay * random.uniform(0.8, 1.2)`), inutile con un
-solo client ma buona pratica, e il rispetto dell'header `retry-after` sui 429,
-che l'API manda e che è più affidabile di qualunque backoff calcolato da noi.
+I would also add jitter (`delay * random.uniform(0.8, 1.2)`), pointless with a
+single client but good practice, and honour the `retry-after` header on 429s,
+which the API sends and which is more reliable than any backoff we compute
+ourselves.
 
-**Pro dell'alternativa.** Risposta immediata quando l'errore è di
-configurazione, log più chiari (`AuthenticationError` una volta sola invece di
-tre righe identiche), nessuna chiamata sprecata verso un endpoint che ci ha già
-detto di no.
+**In favour of the alternative.** An immediate answer when the error is
+configuration, clearer logs (`AuthenticationError` once instead of three
+identical lines), no wasted call to an endpoint that has already said no.
 
-**Contro.** Un elenco di classi da tenere aggiornato con le versioni del SDK: se
-Anthropic introduce un nuovo errore transitorio e non lo aggiungiamo, viene
-trattato come definitivo e perdiamo un retry legittimo. Il comportamento
-attuale, "ritenta tutto", è il più semplice e sbaglia sempre dalla parte
-prudente.
+**Against.** A list of classes to keep in step with the SDK versions: if
+Anthropic introduces a new transient error and we do not add it, it is treated
+as final and we lose a legitimate retry. The current behaviour, "retry
+everything", is the simplest and always errs on the cautious side.
 
-**Verdetto: cambiamento da valutare subito** — è l'unica voce di questo
-documento che metterei in cima alla lista. Non è un bug, è una piccola
-inefficienza, ma il codice è già scritto per accoglierlo (basta la condizione
-`isinstance` dentro l'`except` esistente) e migliora sia la latenza percepita
-sia la leggibilità dei log. Dimmi se lo vuoi e lo applico.
+**Verdict: a change to weigh now** — it is the only entry in this document I
+would put at the top of the list. It is not a bug, it is a small inefficiency,
+but the code is already written to accommodate it (an `isinstance` condition
+inside the existing `except` is enough) and it improves both perceived latency
+and log readability. Say the word and I will apply it.
 
 ---
 
-## 6. Memoria dietro interfaccia
+## 6. Memory behind an interface
 
-**Decisione specificata.** Interfaccia astratta (`get_history` / `append` /
-`prune`) e implementazione in-memory con finestra scorrevole su
-`MAX_HISTORY_MESSAGES`, da sostituire in futuro con SQLite senza toccare il
-router.
+**The decision as specified.** An abstract interface (`get_history` / `append` /
+`prune`) and an in-memory implementation with a sliding window on
+`MAX_HISTORY_MESSAGES`, to be replaced in future with SQLite without touching
+the router.
 
-**È la scelta migliore?** Sì per la v1, e l'interfaccia è dimensionata bene: tre
-metodi, nessuno di troppo. Ho fatto due scelte implementative che vale la pena
-dichiarare, perché non erano nella specifica:
+**Is it the best choice?** Yes for v1, and the interface is sized well: three
+methods, none of them surplus. I made two implementation choices worth
+declaring, because they were not in the specification:
 
-- **I metodi sono `async`.** Una memoria sincrona sarebbe stata più semplice
-  oggi, ma SQLite (con `aiosqlite`) e qualunque altro storage sono asincroni:
-  averli già `async` è precisamente ciò che rende vera la promessa "sostituisco
-  senza toccare il router".
-- **La finestra non si ferma mai su un messaggio `assistant`.** Se il taglio
-  lascerebbe la cronologia che inizia con una risposta dell'assistente, viene
-  scartato un messaggio in più. L'API Messages rifiuta una conversazione che non
-  comincia dall'utente: senza questa regola, con un `MAX_HISTORY_MESSAGES`
-  dispari il sistema si sarebbe rotto a caso dopo qualche scambio.
+- **The methods are `async`.** A synchronous memory would have been simpler
+  today, but SQLite (with `aiosqlite`) and any other storage are asynchronous:
+  having them already `async` is precisely what makes the promise "I replace it
+  without touching the router" true.
+- **The window never stops on an `assistant` message.** If the cut would leave
+  the history beginning with an assistant answer, one further message is
+  dropped. The Messages API rejects a conversation that does not begin with the
+  user: without this rule, an odd `MAX_HISTORY_MESSAGES` would have broken the
+  system at random after a few exchanges.
 
-**Alternativa concreta — ed è la domanda vera: come farei la persistenza.**
+**The concrete alternative — and this is the real question: how I would do
+persistence.**
 
-Userei **SQLite puro tramite `aiosqlite`**, senza ORM. Motivi: lo schema è di
-due tabelle, SQLAlchemy porterebbe un livello di astrazione e ~30 MB di
-dipendenze per risparmiare venti righe di SQL, e su un server modesto SQLite in
-modalità WAL regge senza sforzo il traffico di una persona.
+I would use **plain SQLite through `aiosqlite`**, with no ORM. The reasons: the
+schema is two tables, SQLAlchemy would bring a layer of abstraction and ~30 MB
+of dependencies in order to save twenty lines of SQL, and on a modest server
+SQLite in WAL mode handles one person's traffic without effort.
 
-Schema:
+The schema:
 
 ```sql
 CREATE TABLE conversations (
     conversation_id TEXT PRIMARY KEY,
-    channel         TEXT NOT NULL,          -- 'telegram', domani 'voice'
+    channel         TEXT NOT NULL,          -- 'telegram', tomorrow 'voice'
     created_at      TEXT NOT NULL,
     last_active_at  TEXT NOT NULL,
-    summary         TEXT                     -- riassunto del passato, vedi sotto
+    summary         TEXT                     -- a summary of the past, see below
 );
 
 CREATE TABLE messages (
@@ -332,68 +332,67 @@ CREATE TABLE messages (
     role            TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
     content         TEXT NOT NULL,
     created_at      TEXT NOT NULL,
-    tokens          INTEGER                  -- per misurare il costo reale
+    tokens          INTEGER                  -- to measure the real cost
 );
 
 CREATE INDEX idx_messages_conversation ON messages(conversation_id, id DESC);
 ```
 
-`PRAGMA journal_mode=WAL` e `PRAGMA synchronous=NORMAL`: letture e scritture non
-si bloccano a vicenda e le fsync sono poche.
+`PRAGMA journal_mode=WAL` and `PRAGMA synchronous=NORMAL`: reads and writes do
+not block each other and there are few fsyncs.
 
-`SqliteConversationMemory` implementerebbe la stessa interfaccia:
-`get_history` è un `SELECT ... ORDER BY id DESC LIMIT ?` invertito in Python;
-`append` è un `INSERT` più l'aggiornamento di `last_active_at`; `prune` **non
-cancellerebbe nulla** — e questa è la differenza concettuale importante.
+`SqliteConversationMemory` would implement the same interface: `get_history` is
+a `SELECT ... ORDER BY id DESC LIMIT ?` reversed in Python; `append` is an
+`INSERT` plus the update of `last_active_at`; `prune` **would delete nothing** —
+and that is the important conceptual difference.
 
-Sulla gestione della finestra di contesto la mia proposta è **troncamento
-adesso, riassunti dopo, e mai cancellazione**:
+On managing the context window my proposal is **truncation now, summaries later,
+and never deletion**:
 
-1. Lo storico resta integro su disco per sempre (è il motivo per cui si mette un
-   database: poter cercare "cosa ci siamo detti a marzo").
-2. `get_history` restituisce solo gli ultimi *N* messaggi, esattamente come
-   oggi: è il troncamento, e per il 95% delle conversazioni domestiche basta.
-3. Quando una conversazione supera una soglia (diciamo 40 messaggi oltre la
-   finestra), un job periodico chiede al modello *più economico* un riassunto in
-   200 parole di ciò che esce dalla finestra e lo salva in
-   `conversations.summary`. Il router lo antepone al system prompt come "Contesto
-   delle conversazioni precedenti: ...". Costa una chiamata Haiku ogni tanto e
-   dà l'illusione, molto convincente, di un assistente che ricorda.
-4. Il riassunto si rigenera a partire dal riassunto precedente più i nuovi
-   messaggi usciti dalla finestra, così non si rilegge mai tutto lo storico.
+1. The history stays intact on disk forever (it is the reason one adds a
+   database: to be able to search for "what did we say in March").
+2. `get_history` returns only the last *N* messages, exactly as today: that is
+   the truncation, and for 95% of household conversations it is enough.
+3. When a conversation exceeds a threshold (say 40 messages beyond the window),
+   a periodic job asks the *cheapest* model for a 200-word summary of what falls
+   outside the window and stores it in `conversations.summary`. The router
+   prepends it to the system prompt as "Context from earlier conversations:
+   ...". It costs one Haiku call now and then and gives the very convincing
+   illusion of an assistant that remembers.
+4. The summary is regenerated from the previous summary plus the new messages
+   that have left the window, so the whole history is never re-read.
 
-Backup: il file `.db` va nella directory di progetto, quindi `backup.sh` lo
-prende già così com'è — ma con WAL attivo l'unico modo corretto di copiarlo a
-caldo è `sqlite3 emma.db ".backup /percorso/copia.db"`, non `cp`. Quando
-arriverà il database sarà l'unica riga da aggiungere allo script.
+Backup: the `.db` file goes in the project directory, so `backup.sh` already
+picks it up as it is — but with WAL active the only correct way to copy it hot
+is `sqlite3 emma.db ".backup /path/copy.db"`, not `cp`. When the database
+arrives, that will be the only line to add to the script.
 
-**Pro dell'alternativa.** Le conversazioni sopravvivono ai riavvii (oggi un
-`systemctl restart` azzera tutto); diventa possibile cercare nel passato; il
-campo `tokens` ti dice quanto spendi davvero.
+**In favour of the alternative.** Conversations survive restarts (today a
+`systemctl restart` wipes everything); searching the past becomes possible; the
+`tokens` field tells you what you really spend.
 
-**Contro.** Migrazioni dello schema da gestire a mano; un file in più da salvare
-e ripristinare correttamente; e la memoria persistente porta con sé una domanda
-di privacy che oggi non esiste (tutto quello che dici resta scritto su disco in
-chiaro).
+**Against.** Schema migrations to handle by hand; one more file to back up and
+restore correctly; and persistent memory brings with it a privacy question that
+does not exist today (everything you say stays written on disk in the clear).
 
-**Verdetto: da fare nella fase v0.2**, come già previsto dalla roadmap. È il
-prossimo passo naturale e l'interfaccia è pronta ad accoglierlo.
+**Verdict: to do in the v0.2 phase**, as the roadmap already plans. It is the
+natural next step and the interface is ready to receive it.
 
 ---
 
-## 7. Logging strutturato su stdout
+## 7. Structured logging to stdout
 
-**Decisione specificata.** Livello, timestamp, evento su stdout, così finisce in
-journalctl via systemd.
+**The decision as specified.** Level, timestamp and event to stdout, so that it
+ends up in journalctl via systemd.
 
-**È la scelta migliore?** Sì. Scrivere su stdout e lasciare che sia
-l'infrastruttura a decidere dove finiscono i log è la pratica giusta: niente
-file da ruotare, niente permessi da gestire, e `journalctl -u emma -f` ti dà
-tutto. Il formato attuale è `timestamp | LIVELLO | logger | messaggio`, leggibile
-a occhio e greppabile.
+**Is it the best choice?** Yes. Writing to stdout and letting the infrastructure
+decide where the logs end up is the right practice: no files to rotate, no
+permissions to manage, and `journalctl -u emma -f` gives you everything. The
+current format is `timestamp | LEVEL | logger | message`, readable at a glance
+and greppable.
 
-**Alternativa concreta.** Log in JSON per riga, con `structlog` o un formatter
-custom di venti righe:
+**The concrete alternative.** JSON logs, one per line, with `structlog` or a
+twenty-line custom formatter:
 
 ```json
 {"ts":"2026-08-29T14:03:11+02:00","level":"info","event":"message_handled",
@@ -401,194 +400,216 @@ custom di venti righe:
  "tokens_in":420,"tokens_out":95}
 ```
 
-Con journald si può anche andare oltre e usare i campi strutturati nativi
-(`systemd.journal.JournalHandler`), interrogabili con `journalctl
+With journald one could go further and use the native structured fields
+(`systemd.journal.JournalHandler`), queryable with `journalctl
 CONVERSATION_ID=12345`.
 
-**Pro dell'alternativa.** Diventa possibile rispondere a domande tipo "quanto ho
-speso questa settimana" o "qual è la latenza mediana" con un `jq` invece che a
-occhio; e il giorno in cui ci saranno più canali, filtrare per canale sarà
-banale.
+**In favour of the alternative.** It becomes possible to answer questions like
+"how much did I spend this week" or "what is the median latency" with a `jq`
+instead of by eye; and the day there are several channels, filtering by channel
+will be trivial.
 
-**Contro.** JSON è molto meno leggibile quando stai guardando i log in diretta
-per capire perché il bot non risponde — che è il 90% delle volte in cui li
-guarderai. E un dashboard di metriche per un sistema a un utente è
-sovradimensionato.
+**Against.** JSON is far less readable when you are watching the logs live to
+understand why the bot is not answering — which is 90% of the times you will
+look at them. And a metrics dashboard for a single-user system is oversized.
 
-**Verdetto: non vale la pena** finché l'utente è uno solo. Diventa interessante
-quando ci saranno le skill e vorrai sapere quali usi davvero: a quel punto
-suggerisco il compromesso di un secondo logger "eventi" in JSON su un file
-separato, lasciando il log operativo leggibile com'è.
-
----
-
-## 8. Lingua di codice e documentazione
-
-**Decisione specificata.** Codice, commenti e docstring in inglese, docstring su
-tutte le funzioni pubbliche; `GUIDA.pdf` in italiano; README e altri file di
-progetto in inglese.
-
-**È la scelta migliore?** Sì, e la regola "una lingua per pubblico, non una
-lingua per file" è quella giusta. Ho applicato la specifica alla lettera con una
-sola eccezione dichiarata: **`REVISIONE.md` è in italiano**. È un documento di
-decisione indirizzato a te, strettamente legato a una specifica scritta in
-italiano, e per la community sarebbe rumore — ma è un file di progetto, quindi
-la specifica avrebbe voluto l'inglese. Se preferisci, lo traduco.
-
-L'unica stringa italiana nel codice è il messaggio di cortesia in
-`core/router.py`, con un commento che spiega perché: è l'unico testo del codebase
-che leggi tu e non un programmatore.
-
-**Alternativa concreta.** Esternalizzare tutte le stringhe rivolte all'utente in
-un file (`prompts/messages.it.txt` o un dizionario in `config.py`), così la
-lingua dell'assistente diventa configurabile insieme alla personalità.
-
-**Pro dell'alternativa.** Coerenza totale (zero italiano nel codice) e un
-contributore inglese potrebbe usare il progetto senza toccare `core/`.
-
-**Contro.** Tre stringhe non fanno un sistema di internazionalizzazione, e
-l'indirezione renderebbe più difficile capire cosa succede leggendo il router.
-
-**Verdetto: da considerare in una fase futura**, se e quando qualcuno userà
-davvero il progetto in un'altra lingua. Prima di allora sarebbe astrazione
-gratuita.
+**Verdict: not worth it** while there is only one user. It becomes interesting
+when the tools exist and you want to know which ones you really use: at that
+point I suggest the compromise of a second "events" logger in JSON to a separate
+file, leaving the operational log readable as it is.
 
 ---
 
-## 9. Componente: il canale (Telegram, long polling)
+## 8. The language of the code and the documentation
 
-**Decisione specificata.** `python-telegram-bot` in long polling, mai webhook,
-nessuna porta esposta.
+**The decision as specified.** Code, comments and docstrings in English,
+docstrings on all public functions; `GUIDA.pdf` in Italian; the README and other
+project files in English.
 
-**È la scelta migliore?** Sì, e per un server domestico dietro NAT non c'è
-davvero gara. Il webhook richiederebbe IP pubblico o tunnel, dominio,
-certificato TLS, rinnovi, e una porta aperta verso Internet su una macchina di
-casa: tutta superficie d'attacco in cambio di qualche centinaio di millisecondi
-di latenza in meno. Il long polling paga solo una connessione uscente sempre
-aperta, che è irrilevante.
+**Is it the best choice?** The rule "one language per audience, not one language
+per file" was the right one. It has since been superseded by a simpler rule, and
+the change is worth recording because it reverses part of this entry.
 
-Ho aggiunto `drop_pending_updates=True` all'avvio: dopo un riavvio ricevi un
-assistente vivo, non una raffica di risposte a domande di tre ore prima. E
-`allowed_updates=[Update.MESSAGE]`, che riduce il traffico inutile.
+Originally I applied the specification to the letter with one declared
+exception: **`REVISIONE.md` was in Italian**, on the grounds that it is a
+decision document addressed to you, tied to a specification written in Italian,
+and that for the community it would be noise. I noted then that it was a project
+file and that the specification would have wanted English, and offered to
+translate it.
 
-**Alternativa concreta.** Se un giorno la latenza contasse davvero, il webhook si
-farebbe *senza* aprire porte: un tunnel in uscita (Cloudflare Tunnel o Tailscale
-Funnel) che espone l'endpoint FastAPI già presente. Servirebbe un handler
-`POST /telegram/webhook` con verifica del `secret_token`, e
-`Application.process_update()` al posto dello `Updater`.
+**On 3 September 2026 the owner asked for exactly that**: everything written in
+the repository in English, `docs/GUIDA.md`/`.pdf`, this file and `SESSIONS.md`
+included, with the conversation between us staying in Italian. The reasoning is
+sound and simpler than mine: a repository that is public reads the same way to
+everybody who finds it, and "one language per audience" quietly becomes "one
+language per author's mood" as soon as the audiences overlap — which they do,
+because the person maintaining the instance and the person reading the design
+review are the same person here.
 
-**Pro.** Latenza più bassa e nessun polling a vuoto.
+Two things stayed in Italian, deliberately, and they are not documentation:
 
-**Contro.** Una dipendenza esterna in più (il tunnel) proprio nel punto in cui
-il progetto vuole essere autonomo, e un endpoint pubblico da proteggere.
+- `prompts/system_prompt.txt`, EMMA's personality. She speaks Italian to her
+  owner. The file is configuration.
+- The strings the tools return (`"Registrato come fatto #1."` and the rest).
+  They are what the user reads on Telegram, and the tests assert them
+  character by character.
 
-**Verdetto: non vale la pena.** Il long polling è la scelta corretta per questo
-sistema e lo resterà anche con voce e skill.
+Where a document quotes one of those, the quotation stays in the original with
+an English gloss beside it. A translated quotation is a false one — it claims
+the program said something it never said.
+
+**The concrete alternative** (unchanged, and still not taken). Externalise every
+user-facing string into a file (`prompts/messages.it.txt`, or a dictionary in
+`config.py`), so that the assistant's language becomes configurable alongside
+the personality.
+
+**In favour of the alternative.** Total consistency (zero Italian in the code)
+and an English-speaking contributor could use the project without touching
+`core/`.
+
+**Against.** A handful of strings do not make an internationalisation system,
+and the indirection would make it harder to see what happens when reading the
+router.
+
+**Verdict: worth considering in a future phase**, if and when somebody really
+uses the project in another language. Before then it would be abstraction for
+its own sake. Rule 6 of `CLAUDE.md` now records the language policy, so that a
+future session does not "tidy up" by translating the personality.
 
 ---
 
-## 10. Componente: struttura del progetto
+## 9. Component: the channel (Telegram, long polling)
 
-**Decisione specificata.** L'albero di file indicato: moduli piatti in radice
+**The decision as specified.** `python-telegram-bot` in long polling, never a
+webhook, no exposed port.
+
+**Is it the best choice?** Yes, and for a home server behind NAT it is not
+really a contest. A webhook would need a public IP or a tunnel, a domain, a TLS
+certificate, renewals, and a port open to the internet on a machine at home: all
+attack surface in exchange for a few hundred milliseconds less latency. Long
+polling pays only for one permanently open outbound connection, which is
+irrelevant.
+
+I added `drop_pending_updates=True` at startup: after a restart you get a live
+assistant, not a burst of answers to questions from three hours ago. And
+`allowed_updates=[Update.MESSAGE]`, which cuts useless traffic.
+
+**The concrete alternative.** If latency ever really mattered, the webhook could
+be done *without* opening ports: an outbound tunnel (Cloudflare Tunnel or
+Tailscale Funnel) exposing the FastAPI endpoint that already exists. It would
+need a `POST /telegram/webhook` handler with `secret_token` verification, and
+`Application.process_update()` in place of the `Updater`.
+
+**In favour.** Lower latency and no polling that comes back empty.
+
+**Against.** One more external dependency (the tunnel) at exactly the point
+where the project wants to be self-sufficient, and a public endpoint to protect.
+
+**Verdict: not worth it.** Long polling is the correct choice for this system
+and will remain so with voice and tools.
+
+---
+
+## 10. Component: the project structure
+
+**The decision as specified.** The file tree given: flat modules at the root
 (`main.py`, `config.py`), `adapters/`, `core/`, `prompts/`, `scripts/`,
 `systemd/`, `tests/`, `docs/`.
 
-**È la scelta migliore?** Per un progetto di questa dimensione sì: si apre la
-cartella e si capisce dov'è ogni cosa senza navigare. La separazione
-`adapters/` ↔ `core/` è quella che conta e c'è.
+**Is it the best choice?** For a project of this size yes: you open the folder
+and see where everything is without navigating. The `adapters/` ↔ `core/`
+separation is the one that counts, and it is there.
 
-**Alternativa concreta.** Il layout `src/`, standard per i progetti Python
-pubblicati:
+**The concrete alternative.** The `src/` layout, standard for published Python
+projects:
 
 ```
 src/emma/{__init__,config,main}.py
 src/emma/{adapters,core,prompts}/...
 tests/
-pyproject.toml          # con [project] e build-backend
+pyproject.toml          # with [project] and a build backend
 ```
 
-installato con `pip install -e .`, import assoluti `from emma.core.router import
-Router`, entry point `emma` invece di `python main.py`.
+installed with `pip install -e .`, absolute imports `from emma.core.router
+import Router`, an `emma` entry point instead of `python main.py`.
 
-**Pro dell'alternativa.** Impossibile importare per sbaglio il codice sorgente
-invece del pacchetto installato; nomi di modulo namespaced (oggi un `config.py`
-in radice potrebbe teoricamente collidere con qualcosa in `sys.path`);
-pubblicabile su PyPI; è ciò che un contributore Python esperto si aspetta.
+**In favour of the alternative.** It becomes impossible to import the source
+tree by mistake instead of the installed package; namespaced module names (today
+a root `config.py` could in theory collide with something on `sys.path`);
+publishable on PyPI; it is what an experienced Python contributor expects.
 
-**Contro.** Aggiunge un passaggio di installazione e un livello di directory a
-un progetto che si deploya con `git pull` e si legge in mezz'ora. Per un
-assistente self-hosted, "clona ed esegui" vale più della correttezza formale.
+**Against.** It adds an installation step and a directory level to a project
+that is deployed with `git pull` and read in half an hour. For a self-hosted
+assistant, "clone and run" is worth more than formal correctness.
 
-**Verdetto: da considerare in una fase futura**, e precisamente il giorno in cui
-volessi distribuire EMMA come pacchetto installabile. Se resta un progetto da
-clonare, la struttura attuale è migliore.
+**Verdict: worth considering in a future phase**, and precisely on the day you
+wanted to distribute EMMA as an installable package. If it stays a project to be
+cloned, the current structure is better.
 
-Sul punto minore 0.4 (dove vivono `AssistantRequest` e `AssistantResponse`): un
-`core/models.py` dedicato sarebbe leggermente più pulito, e lo consiglierei nel
-momento in cui la risposta si arricchisse (punto 1) o in cui altri tipi condivisi
-comparissero. Con due dataclass, tenerle accanto al router che le usa è più
-leggibile che dividerle in un file da tre righe utili.
+On the minor point 0.4 (where `AssistantRequest` and `AssistantResponse` live):
+a dedicated `core/models.py` would be slightly cleaner, and I would recommend it
+the moment the response grew richer (entry 1) or other shared types appeared.
+With two dataclasses, keeping them next to the router that uses them is more
+readable than splitting them into a file with three useful lines.
 
 ---
 
-## 11. Componente: resilienza a livello di sistema
+## 11. Component: resilience at the system level
 
-**Decisione specificata.** Il servizio principale (`emma.service`) con
+**The decision as specified.** The main service (`emma.service`) with
 `Restart=always`.
 
-**È la scelta migliore?** Sì, ed è il livello giusto: il processo non deve
-provare a sopravvivere a sé stesso, ci pensa systemd. Ho aggiunto `RestartSec=5s`
-e `StartLimitBurst=5` in `[Unit]`: se il servizio muore cinque volte in cinque
-minuti la causa non è transitoria (un `.env` sbagliato, per esempio) e continuare
-a riavviare significherebbe solo martellare l'API di Telegram. Meglio fermarsi e
-farsi notare.
+**Is it the best choice?** Yes, and it is the right level: the process should
+not try to survive itself, systemd takes care of that. I added `RestartSec=5s`
+and `StartLimitBurst=5` in `[Unit]`: if the service dies five times in five
+minutes the cause is not transient (a wrong `.env`, for instance) and carrying
+on restarting would only hammer the Telegram API. Better to stop and be noticed.
 
-Ho anche irrigidito il sandbox systemd (`ProtectSystem=strict`, `ProtectHome`,
-`CapabilityBoundingSet=` vuoto, `RestrictAddressFamilies`, `SystemCallFilter`):
-il processo può leggere la propria directory e aprire connessioni HTTPS in
-uscita, nient'altro. Vale la pena saperlo perché quando aggiungerai una skill
-che scrive un file dovrai aggiungere un `ReadWritePaths=`, altrimenti la scoprirai
-con un `Permission denied` non ovvio.
+I also hardened the systemd sandbox (`ProtectSystem=strict`, `ProtectHome`, an
+empty `CapabilityBoundingSet=`, `RestrictAddressFamilies`, `SystemCallFilter`):
+the process can read its own directory and open outbound HTTPS connections, and
+nothing else. This is worth knowing because when you add a tool that writes a
+file you will have to add a `ReadWritePaths=`, or you will discover it through a
+non-obvious `Permission denied`.
 
-**Alternativa concreta.** Un watchdog attivo: `Type=notify` con
-`WatchdogSec=120`, e nel codice un task che chiama `sd_notify("WATCHDOG=1")` solo
-dopo aver verificato che il polling di Telegram è davvero vivo. Oggi un processo
-che resta in piedi ma smette di ricevere update (un bug nell'updater, una
-connessione appesa) non verrebbe riavviato: dal punto di vista di systemd sta
-benissimo.
+**The concrete alternative.** An active watchdog: `Type=notify` with
+`WatchdogSec=120`, and in the code a task that calls `sd_notify("WATCHDOG=1")`
+only after verifying that Telegram polling is really alive. Today a process that
+stays up but stops receiving updates (a bug in the updater, a hung connection)
+would not be restarted: from systemd's point of view it is perfectly well.
 
-**Pro.** Copre l'unico modo realistico in cui EMMA può "morire senza morire".
+**In favour.** It covers the only realistic way EMMA can "die without dying".
 
-**Contro.** Dipendenza da `python-systemd`, e un watchdog mal tarato riavvia il
-servizio mentre sta solo aspettando una risposta lenta del modello — cura peggiore
-del male.
+**Against.** A dependency on `python-systemd`, and a badly tuned watchdog
+restarts the service while it is merely waiting for a slow answer from the model
+— a cure worse than the disease.
 
-**Verdetto: da considerare in una fase futura**, se ti capiterà davvero che il
-bot smetta di rispondere con il servizio *active (running)*. Prima di allora è
-complessità speculativa. Un sostituto povero e immediato: l'endpoint `/health`
-già esposto su loopback, interrogabile da un cron che riavvia il servizio se non
-risponde.
+**Verdict: worth considering in a future phase**, if it really happens that the
+bot stops answering while the service is *active (running)*. Before then it is
+speculative complexity. A poor but immediate substitute: the `/health` endpoint
+already exposed on loopback, queryable from a cron job that restarts the service
+if it does not answer.
 
 ---
 
-## 12. Componente: stack FastAPI + uvicorn
+## 12. Component: the FastAPI + uvicorn stack
 
-**Decisione specificata.** FastAPI + uvicorn, processo unico, asincrono, con il
-polling Telegram nello stesso event loop.
+**The decision as specified.** FastAPI + uvicorn, a single asynchronous process,
+with Telegram polling in the same event loop.
 
-**È la scelta migliore?** Con riserva. FastAPI qui non serve a quasi nulla: la
-v1 espone un solo endpoint `/health` su loopback, e `python-telegram-bot` sa già
-gestire il proprio event loop da solo (`Application.run_polling()`). Il costo è
-tre dipendenze (fastapi, starlette, uvicorn) e una struttura di avvio — lifespan,
-`uvicorn.run` — più elaborata del necessario.
+**Is it the best choice?** With reservations. FastAPI does almost nothing here:
+v1 exposes a single `/health` endpoint on loopback, and `python-telegram-bot`
+already knows how to run its own event loop (`Application.run_polling()`). The
+cost is three dependencies (fastapi, starlette, uvicorn) and a startup structure
+— lifespan, `uvicorn.run` — more elaborate than necessary.
 
-Detto questo, non è una scelta sbagliata: è una scommessa sul futuro che ha buone
-probabilità di ripagarsi. Il satellite Raspberry dovrà parlare con il nodo
-centrale via HTTP, e allora il server ci sarà già; un pannello web di controllo,
-se mai lo vorrai, idem. E `/health` non è inutile: è il modo più semplice per
-sapere se il processo è vivo senza leggere i log.
+That said, it is not a wrong choice: it is a bet on the future with a good
+chance of paying for itself. The Raspberry Pi satellite will have to talk to the
+central node over HTTP, and then the server will already be there; a web control
+panel, if you ever want one, likewise. And `/health` is not useless: it is the
+simplest way to know the process is alive without reading the logs.
 
-**Alternativa concreta.** `main.py` senza server HTTP:
+**The concrete alternative.** `main.py` with no HTTP server:
 
 ```python
 def main() -> int:
@@ -598,234 +619,231 @@ def main() -> int:
     return 0
 ```
 
-Tre dipendenze in meno, una trentina di righe in meno, e l'avvio diventa
-banale. Quando servirà l'HTTP, si aggiunge FastAPI in quel momento.
+Three fewer dependencies, thirty fewer lines, and startup becomes trivial. When
+HTTP is needed, FastAPI is added at that moment.
 
-**Pro dell'alternativa.** Meno superficie, meno da aggiornare, meno da spiegare
-nel capitolo 3 della guida. Su hardware modesto anche qualche decina di MB di
-RAM in meno.
+**In favour of the alternative.** Less surface, less to update, less to explain
+in chapter 3 of the guide. On modest hardware, a few tens of MB less RAM too.
 
-**Contro.** Rifare l'avvio quando arriverà il satellite, e perdere `/health`.
+**Against.** Redoing startup when the satellite arrives, and losing `/health`.
 
-**Verdetto: non vale la pena cambiare adesso.** L'ho scritto perché la specifica
-lo chiede e perché la scommessa è ragionevole: il satellite vocale è nella
-roadmap, non è ipotetico. Ma se decidessi che la v2 non avrà un satellite HTTP,
-questa è la prima semplificazione da fare.
+**Verdict: not worth changing now.** I wrote it because the specification asks
+for it and because the bet is reasonable: the voice satellite is on the roadmap,
+it is not hypothetical. But if you decided that v2 will have no HTTP satellite,
+this is the first simplification to make.
 
 ---
 
-## 13. Componente: backup e versionamento
+## 13. Component: backup and versioning
 
-**Decisione specificata.** Git per le versioni, `backup.sh` + timer systemd per
-gli archivi datati con rotazione, `backup-dev.ps1` per gli snapshot su Windows,
-flusso PC → GitHub → `git pull` sul server.
+**The decision as specified.** Git for versions, `backup.sh` + a systemd timer
+for dated archives with rotation, `backup-dev.ps1` for snapshots on Windows, the
+flow PC → GitHub → `git pull` on the server.
 
-**È la scelta migliore?** Sì, e i due livelli sono complementari nel modo giusto:
-Git protegge dagli errori di modifica, gli archivi proteggono dai guasti del
-disco e conservano il `.env`, che in Git non può stare. Ho aggiunto tre cose che
-consideravo parte del "fatto bene":
+**Is it the best choice?** Yes, and the two levels complement each other in the
+right way: Git protects against editing mistakes, the archives protect against
+disk failure and preserve the `.env`, which cannot live in Git. I added three
+things I considered part of "done properly":
 
-- **verifica dell'archivio prima della rotazione** (`tar -tzf`), così un backup
-  fallito non può mai cancellare quello buono di ieri;
-- **`MANIFEST.txt` dentro l'archivio** con data, host e commit Git di
-  provenienza — un archivio senza provenienza è difficile da usare quando serve
-  davvero;
-- **lettura del `.env` senza `source`**: `source .env` eseguirebbe il contenuto
-  del file, e un file di dati non va mai eseguito.
+- **verifying the archive before the rotation** (`tar -tzf`), so that a failed
+  backup can never delete yesterday's good one;
+- **a `MANIFEST.txt` inside the archive** with the date, the host and the Git
+  commit it came from — an archive without provenance is hard to use when it is
+  really needed;
+- **reading the `.env` without `source`**: `source .env` would execute the
+  file's contents, and a data file must never be executed.
 
-**Alternativa concreta.** Sostituire `tar` con **restic** o **borgbackup**:
-backup incrementali deduplicati, cifrati, con verifica integrata (`restic
-check`) e ripristino di singoli file da qualunque snapshot.
+**The concrete alternative.** Replace `tar` with **restic** or **borgbackup**:
+deduplicated incremental backups, encrypted, with built-in verification (`restic
+check`) and restoration of individual files from any snapshot.
 
 ```bash
 restic -r /mnt/backup/emma-repo backup /opt/emma --exclude .venv
 restic -r /mnt/backup/emma-repo forget --keep-daily 14 --prune
 ```
 
-**Pro dell'alternativa.** Cifratura a riposo (oggi l'archivio contiene la tua
-API key in chiaro su un disco che potrebbe essere rubato o rivenduto); spazio
-molto minore, perché 14 copie quasi identiche vengono deduplicate; possibilità
-di aggiungere una destinazione remota (S3, Backblaze) con la stessa riga di
-comando, cosa che oggi non hai — se la casa va a fuoco, i backup bruciano con il
-server.
+**In favour of the alternative.** Encryption at rest (today the archive holds
+your API key in the clear on a disk that could be stolen or resold); far less
+space, because 14 nearly identical copies are deduplicated; the ability to add a
+remote destination (S3, Backblaze) with the same command line, which you do not
+have today — if the house burns down, the backups burn with the server.
 
-**Contro.** Una dipendenza esterna da installare e aggiornare; una passphrase in
-più da custodire (e se la perdi, hai perso i backup); e `tar.gz` lo apre
-chiunque, ovunque, fra dieci anni, senza avere restic installato — che per un
-backup è una qualità sottovalutata.
+**Against.** An external dependency to install and update; one more passphrase
+to keep safe (and if you lose it, you have lost the backups); and a `tar.gz` can
+be opened by anyone, anywhere, in ten years' time, without having restic
+installed — which for a backup is an underrated quality.
 
-**Verdetto: da considerare in una fase futura**, con una priorità: la parte che
-mi convince di più non è la deduplicazione, è **la copia fuori casa**. Anche
-tenendo `tar.gz`, sincronizzare `BACKUP_DIR` verso un disco esterno che stacchi,
-o verso uno storage remoto, coprirebbe l'unico scenario che oggi ti lascia
-scoperto. Con la cifratura che diventa obbligatoria nel momento in cui gli
-archivi escono di casa.
+**Verdict: worth considering in a future phase**, with one priority: the part
+that convinces me most is not the deduplication, it is **the copy that lives
+away from the house**. Even keeping `tar.gz`, syncing `BACKUP_DIR` to an
+external disk you unplug, or to remote storage, would cover the one scenario
+that leaves you exposed today. With encryption becoming mandatory the moment the
+archives leave the house.
 
 ---
 
-## 14. Componente: `CLAUDE.md`
+## 14. Component: `CLAUDE.md`
 
-Questa voce risponde punto per punto alle domande che hai posto.
+This entry answers, point by point, the questions you asked.
 
-**Decisione specificata.** Un `CLAUDE.md` in radice con le istruzioni permanenti
-per qualunque assistente AI sul progetto: dopo ogni sessione eseguire
-`backup-dev.ps1` e fare commit descrittivi; mai toccare `.env`; mai applicare
-modifiche architetturali non richieste, rimandando a `REVISIONE.md`.
+**The decision as specified.** A `CLAUDE.md` at the root with the permanent
+instructions for any AI assistant on the project: after every session run
+`backup-dev.ps1` and make descriptive commits; never touch `.env`; never apply
+unrequested architectural changes, deferring them to `REVISIONE.md`.
 
-**È la scelta migliore?** Sì, ed è l'idea più sottile di tutta la specifica:
-incorporare la disciplina nel progetto invece che nella tua memoria. Un file che
-l'assistente legge da solo all'inizio di ogni sessione è l'unico modo perché una
-regola sopravviva a sessioni che non condividono memoria.
+**Is it the best choice?** Yes, and it is the subtlest idea in the whole
+specification: embedding the discipline in the project instead of in your
+memory. A file the assistant reads by itself at the start of every session is
+the only way a rule survives sessions that share no memory.
 
-**Le istruzioni sono chiare o si prestano a interpretazioni divergenti?**
-Le tre regole della specifica erano chiare nell'intento ma vaghe al bordo, e
-l'ambiguità è dove le sessioni divergono. Le ho scritte cercando di eliminarla:
+**Are the instructions clear, or open to divergent readings?** The
+specification's three rules were clear in intent but vague at the edge, and
+ambiguity is where sessions diverge. I wrote them trying to eliminate it:
 
-- *"mai toccare `.env`"* poteva significare "non modificarlo" oppure "non
-  leggerlo neanche". Ho scritto entrambe esplicitamente, più il divieto di
-  toglierlo da `.gitignore` e di incollare segreti veri in codice, test,
-  documentazione o commit.
-- *"modifiche architetturali"* è la formula più a rischio: senza una
-  definizione, una sessione ci vede dentro anche il rinominare una funzione e si
-  blocca, un'altra ci fa passare un cambio di storage. Ho messo un elenco
-  chiuso: confini fra moduli, interfacce `ConversationMemory` e `Tool`, forma
-  degli oggetti richiesta/risposta, backend di storage, variabili `.env`,
-  dipendenze, modello di processo, layout di deploy. Fuori da quell'elenco si
-  procede.
-- *"commit con messaggi descrittivi"* è un criterio soggettivo. Ho messo un
-  esempio completo di messaggio buono e un elenco di messaggi rifiutati (`update`,
+- *"never touch `.env`"* could mean "do not modify it" or "do not even read it".
+  I wrote both explicitly, plus the ban on removing it from `.gitignore` and on
+  pasting real secrets into code, tests, documentation or commits.
+- *"architectural changes"* is the most dangerous phrase: with no definition,
+  one session sees renaming a function in it and freezes, another lets a change
+  of storage through. I put in a closed list: module boundaries, the
+  `ConversationMemory` and `Tool` interfaces, the shape of the request/response
+  objects, the storage backend, the `.env` variables, the dependencies, the
+  process model, the deployment layout. Outside that list, you proceed.
+- *"commits with descriptive messages"* is a subjective criterion. I put in a
+  complete example of a good message and a list of rejected ones (`update`,
   `fixes`, `wip`).
 
-**Sono troppo rigide o troppo vaghe?** Il rischio maggiore era la rigidità sulla
-regola 2: presa alla lettera, "non fare modifiche architetturali" bloccherebbe
-anche una correzione necessaria. Ho inserito due valvole: l'eccezione per
-l'errore oggettivo che impedisce il funzionamento (con obbligo di segnalarlo in
-cima a `REVISIONE.md`), e la clausola generale per cui una tua istruzione
-esplicita ha la precedenza, purché l'assistente dichiari quale regola sta
-mettendo da parte. Senza quella clausola, prima o poi ti troveresti un assistente
-che rifiuta di fare ciò che gli hai appena chiesto citando un file.
+**Are they too rigid, or too vague?** The greater risk was rigidity on rule 2:
+taken literally, "do not make architectural changes" would block a necessary fix
+too. I put in two release valves: the exception for an objective error that
+stops the project working (with an obligation to report it at the top of
+`REVISIONE.md`), and the general clause under which an explicit instruction from
+you takes precedence, provided the assistant declares which rule it is setting
+aside. Without that clause, sooner or later you would find an assistant refusing
+to do what you have just asked, citing a file.
 
-Sul versante opposto — troppo vaghe — la regola del backup era la più debole:
-"esegui `backup-dev.ps1`" non dice cosa fare se fallisce. Ho aggiunto l'ordine
-esplicito (verifica → snapshot → commit → riferisci) e l'obbligo di dichiarare
-il fallimento invece di saltare il passo in silenzio, che è il modo tipico in cui
-questa regola si degrada.
+On the opposite side — too vague — the backup rule was the weakest: "run
+`backup-dev.ps1`" does not say what to do if it fails. I added the explicit
+order (verify → snapshot → commit → report) and the obligation to declare the
+failure instead of skipping the step in silence, which is the typical way this
+rule degrades.
 
-**C'è ridondanza o contraddizione con README/CONTRIBUTING?** Ridondanza
-minima e voluta su un punto solo: "le decisioni architetturali si discutono
-prima" sta sia in `CONTRIBUTING.md` sia in `CLAUDE.md`, perché i due file hanno
-lettori diversi (un contributore umano, un assistente) e nessuno dei due legge
-per forza l'altro. Contraddizioni non ce ne sono: ho tenuto lo stile di codice
-solo in `CONTRIBUTING.md` e il `CLAUDE.md` ci rimanda invece di ripeterlo, così
-non possono divergere. L'unica sovrapposizione da sorvegliare è la lingua
-(entrambi la dichiarano): se cambierà, vanno cambiati insieme — ed è per questo
-che ho messo in `CLAUDE.md` la tabella "se cambi X aggiorna Y".
+**Is there redundancy or contradiction with README/CONTRIBUTING?** Minimal and
+deliberate redundancy on one point only: "architectural decisions are discussed
+first" is in both `CONTRIBUTING.md` and `CLAUDE.md`, because the two files have
+different readers (a human contributor, an assistant) and neither necessarily
+reads the other. There are no contradictions: I kept the code style in
+`CONTRIBUTING.md` only, and `CLAUDE.md` points at it instead of repeating it, so
+the two cannot diverge. The one overlap to watch is the language (both declare
+it): if it changes, they have to change together — and that is why I put the "if
+you change X, update Y" table into `CLAUDE.md`.
 
-**Resterà valido quando il progetto crescerà?** In buona parte sì. Le regole 1
-(segreti), 3 (backup e commit) e 4 (non cancellare alla cieca) sono indipendenti
-dalla fase. Le due che invecchieranno sono:
+**Will it still hold as the project grows?** Largely yes. Rules 1 (secrets), 3
+(backup and commit) and 4 (do not delete blindly) are independent of the phase.
+The two that will age are:
 
-- la **regola 2**, la cui definizione di "architetturale" è tarata sulla v1:
-  quando ci saranno le skill andrà detto se aggiungere una skill è una modifica
-  architetturale (secondo me no, se rispetta il protocollo `Tool`; sì, se cambia
-  il protocollo);
-- la **tabella della regola 5**, che elenca i documenti da aggiornare e crescerà
-  con il progetto.
+- **rule 2**, whose definition of "architectural" is calibrated on v1: when the
+  tools exist it will have to say whether adding a tool is an architectural
+  change (in my view no, if it satisfies the `Tool` protocol; yes, if it changes
+  the protocol);
+- **the table in rule 5**, which lists the documents to update and will grow
+  with the project.
 
-Sono entrambe manutenzioni di poche righe, previste dalla struttura del file.
+Both are maintenance of a few lines, anticipated by the file's structure.
 
-**Alternativa concreta.** La versione che scriverei se dovessi rifarlo da capo,
-in una fase più matura, è un `CLAUDE.md` **corto** — mezza pagina con le sole
-regole invarianti — più una directory `.claude/` con istruzioni specializzate
-caricate solo quando servono:
+**The concrete alternative.** The version I would write if I had to start again,
+at a more mature stage, is a **short** `CLAUDE.md` — half a page with the
+invariant rules only — plus a `.claude/` directory with specialised instructions
+loaded only when needed:
 
 ```
-CLAUDE.md                        # 5 regole, ~40 righe: segreti, architettura,
-                                 # backup+commit, non cancellare, documenta
-.claude/skills/add-skill.md      # come si aggiunge un tool al router, con esempio
-.claude/skills/release.md        # bump versione, CHANGELOG, tag, push
-.claude/skills/deploy.md         # backup sul server, pull, restart, verifica
+CLAUDE.md                        # 5 rules, ~40 lines: secrets, architecture,
+                                 # backup+commit, do not delete, document
+.claude/skills/add-skill.md      # how a tool is added to the router, with an example
+.claude/skills/release.md        # version bump, CHANGELOG, tag, push
+.claude/skills/deploy.md         # backup on the server, pull, restart, verify
 ```
 
-**Pro dell'alternativa.** Un file istruzioni lungo si degrada: più regole
-contiene, meno peso ha ciascuna, e le ultime vengono seguite peggio delle prime.
-Tenere invariante il nucleo e spostare le procedure in file caricati su richiesta
-mantiene alta l'aderenza e rende le procedure più dettagliate senza costo.
+**In favour of the alternative.** A long instruction file degrades: the more
+rules it holds, the less weight each one carries, and the last are followed
+worse than the first. Keeping the core invariant and moving the procedures into
+files loaded on demand keeps adherence high and makes the procedures more
+detailed at no cost.
 
-**Contro.** Più file da tenere allineati; e finché il progetto è piccolo, un file
-solo che leggi tutto d'un fiato è più onesto e più facile da verificare.
+**Against.** More files to keep in step; and while the project is small, a
+single file you read in one breath is more honest and easier to check.
 
-**Verdetto: da considerare in una fase futura** — quando arriveranno le skill,
-cioè quando esisteranno procedure ripetitive che meritano una scheda propria.
-Per la v1 il file unico è la scelta giusta; l'ho scritto con titoli numerati
-proprio perché spezzarlo, quando servirà, sia meccanico.
+**Verdict: worth considering in a future phase** — when the tools arrive, that
+is, when there are repetitive procedures deserving a card of their own. For v1
+the single file is the right choice; I wrote it with numbered headings precisely
+so that splitting it, when the time comes, is mechanical.
 
 ---
 
-## 15. Nota sulle licenze per le fasi future
+## 15. A note on licences for the future phases
 
-Il progetto è MIT e le dipendenze attuali sono tutte compatibili: `anthropic`
+The project is MIT and the current dependencies are all compatible: `anthropic`
 (MIT), `fastapi` (MIT), `uvicorn` (BSD-3), `python-dotenv` (BSD-3),
-`python-telegram-bot` (**LGPL-3.0**), `ruff` (MIT), `pytest` (MIT). Nessun
-problema oggi, ma due cose da tenere d'occhio.
+`python-telegram-bot` (**LGPL-3.0**), `ruff` (MIT), `pytest` (MIT). No problem
+today, but two things to keep an eye on.
 
-**`python-telegram-bot` è LGPL-3.0.** Usarla come libreria, importandola senza
-modificarla, non contagia il tuo codice: resti MIT. Vincoli reali: se
-distribuissi EMMA come binario o container con la libreria dentro, devi
-permettere all'utente di sostituirla con un'altra versione (con `pip` è
-automatico); e se **modifichi** la libreria, le tue modifiche vanno rilasciate
-LGPL. Per un progetto che si distribuisce come sorgente su GitHub, in pratica
-non cambia nulla.
+**`python-telegram-bot` is LGPL-3.0.** Using it as a library, importing it
+without modifying it, does not infect your code: you stay MIT. The real
+constraints: if you distributed EMMA as a binary or a container with the library
+inside, you must let the user replace it with another version (with `pip` this
+is automatic); and if you **modify** the library, your modifications have to be
+released under LGPL. For a project distributed as source on GitHub, in practice
+nothing changes.
 
-**Fase voce — qui la questione è concreta.** I candidati tipici:
+**The voice phase — here the question is concrete.** The typical candidates:
 
-- **Piper** (TTS): licenza **MIT** — nessun problema. Le *voci* però hanno
-  licenze proprie, spesso CC BY-SA o derivate da dataset con restrizioni: vanno
-  verificate una per una e non vanno impacchettate nel repository senza
-  controllare, perché una voce CC BY-SA richiede attribuzione e condivisione allo
-  stesso modo.
-- **whisper.cpp** (STT): MIT; i modelli Whisper di OpenAI sono MIT.
-- **openWakeWord** (wake word): Apache-2.0; anche qui i singoli modelli di parola
-  hanno licenze proprie.
-- **Attenzione a Coqui TTS**: **MPL-2.0** per il codice, ma alcuni modelli
-  preaddestrati hanno una licenza non commerciale (CPML) che vieta l'uso
-  commerciale. Per uso personale va bene, ma non va distribuito con il progetto
-  come se fosse MIT.
-- **eSpeak NG**, se lo usassi come fallback, è **GPL-3.0**: invocato come processo
-  esterno non contagia nulla, ma non va linkato né incluso.
+- **Piper** (TTS): licensed **MIT** — no problem. The *voices*, however, have
+  licences of their own, often CC BY-SA or derived from datasets with
+  restrictions: they have to be checked one by one and must not be bundled into
+  the repository without checking, because a CC BY-SA voice requires attribution
+  and share-alike.
+- **whisper.cpp** (STT): MIT; OpenAI's Whisper models are MIT.
+- **openWakeWord** (wake word): Apache-2.0; here too the individual word models
+  have their own licences.
+- **Beware of Coqui TTS**: **MPL-2.0** for the code, but some pre-trained models
+  have a non-commercial licence (CPML) forbidding commercial use. Fine for
+  personal use, but not to be distributed with the project as if it were MIT.
+- **eSpeak NG**, if you used it as a fallback, is **GPL-3.0**: invoked as an
+  external process it infects nothing, but it must not be linked or included.
 
-**Regola pratica** per quando arriverà la fase 4: nessun modello, voce o peso
-dentro il repository. Si scaricano al primo avvio con uno script che stampa la
-licenza di ciò che sta scaricando, e si documentano in un `THIRD_PARTY.md`. Così
-il repository resta MIT puro e l'utente sa cosa sta installando.
+**A practical rule** for when the voice phase arrives: no model, voice or weight
+inside the repository. They are downloaded on first start by a script that
+prints the licence of what it is downloading, and they are documented in a
+`THIRD_PARTY.md`. That way the repository stays purely MIT and the user knows
+what they are installing.
 
 ---
 
-## 16. Integrità del database SQLite — **implementata il 31 agosto 2026**
+## 16. SQLite database integrity — **implemented on 31 August 2026**
 
-> **Stato.** 16.1 e 16.2 sono state implementate su tua richiesta, insieme a una
-> forma limitata di auto-ripristino. 16.3 resta il verdetto sul *mirror
-> automatico generico*, che non è stato implementato — la differenza è
-> spiegata in 16.5, aggiunto dopo l'implementazione.
+> **Status.** 16.1 and 16.2 were implemented at your request, together with a
+> limited form of self-restoration. 16.3 remains the verdict on the *generic
+> automatic mirror*, which was not implemented — the difference is explained in
+> 16.5, added after the implementation.
 
-**Da dove nasce.** Domanda tua: conviene fare un backup a parte del solo
-database, e ripristinare automaticamente la copia buona se il servizio non
-riparte? La risposta è metà sì e metà no, e nel guardarci dentro è emerso un
-difetto reale nel backup attuale.
+**Where it comes from.** A question of yours: is it worth backing up the
+database on its own, and automatically restoring the good copy if the service
+does not come back up? The answer is half yes and half no, and looking into it
+turned up a real defect in the current backup.
 
-### 16.1 — Il difetto: `tar` copia un database vivo
+### 16.1 — The defect: `tar` copies a live database
 
-`scripts/backup.sh` archivia l'intera directory di progetto mentre il servizio
-è in funzione. `data/emma.db` viene letto pagina per pagina mentre EMMA ci
-scrive: se un `COMMIT` atterra a metà lettura, l'archivio contiene un database
-internamente incoerente. Il `tar -tzf` di verifica non se ne accorge — controlla
-che l'archivio sia leggibile, non che il `.db` dentro sia valido.
+`scripts/backup.sh` archives the whole project directory while the service is
+running. `data/emma.db` is read page by page while EMMA writes to it: if a
+`COMMIT` lands halfway through the read, the archive contains an internally
+inconsistent database. The verifying `tar -tzf` does not notice — it checks that
+the archive is readable, not that the `.db` inside is valid.
 
-Conseguenza pratica: gli archivi prodotti finora contengono codice e `.env`
-affidabili e un `.db` che potrebbe non aprirsi. Lo scopriresti solo il giorno
-del ripristino.
+The practical consequence: the archives produced so far contain reliable code
+and `.env`, and a `.db` that might not open. You would find out only on the day
+of the restore.
 
-**Correzione.** SQLite ha il meccanismo apposta. Prima del `tar`, in
+**The fix.** SQLite has the mechanism for exactly this. Before the `tar`, in
 `backup.sh`:
 
 ```bash
@@ -836,691 +854,689 @@ if [[ -f "${PROJECT_DIR}/data/emma.db" ]]; then
 fi
 ```
 
-e si esclude `data/` dal `tar`, archiviando lo snapshot al suo posto.
-`VACUUM INTO` produce una copia consistente di un database in uso, senza
-fermare il servizio. Aggiunge una dipendenza: il pacchetto `sqlite3`, che è
-nei repository ufficiali.
+and `data/` is excluded from the `tar`, with the snapshot archived in its place.
+`VACUUM INTO` produces a consistent copy of a database that is in use, without
+stopping the service. It adds one dependency: the `sqlite3` package, which is in
+the official repositories.
 
-Costo: sei righe e un pacchetto. Beneficio: il backup del dato diventa
-affidabile invece che probabile. **Verdetto: da fare subito.**
+Cost: six lines and a package. Benefit: backing up the data becomes reliable
+instead of probable. **Verdict: to do now.**
 
-### 16.2 — WAL e controllo d'integrità all'avvio
+### 16.2 — WAL and an integrity check at startup
 
-Due miglioramenti che si reggono da soli.
+Two improvements that stand on their own.
 
-`PRAGMA journal_mode=WAL` in `SqliteConversationMemory.open()`: il
-write-ahead log sopravvive molto meglio a un'interruzione brutale
-(kill -9, OOM killer, mancanza di corrente) rispetto al journal di default.
-Una riga, nessuno svantaggio in questo scenario a scrittore singolo.
+`PRAGMA journal_mode=WAL` in `SqliteConversationMemory.open()`: the write-ahead
+log survives a brutal interruption (kill -9, the OOM killer, a power cut) far
+better than the default journal. One line, no disadvantage in this
+single-writer scenario.
 
-`PRAGMA integrity_check` allo stesso punto: se il database è corrotto, EMMA
-lo sposta in `emma.db.corrotto-<timestamp>`, ne crea uno nuovo vuoto, logga a
-livello ERROR dove ha messo il file e riparte. **Non ripristina niente da
-sola:** ti dice che è successo, conserva le prove e torna operativa. La
-decisione su cosa recuperare resta tua.
+`PRAGMA integrity_check` at the same place: if the database is corrupt, EMMA
+moves it to `emma.db.corrupt-<timestamp>`, creates a new empty one, logs at
+ERROR level where it put the file, and starts again. **It restores nothing by
+itself:** it tells you what happened, keeps the evidence and comes back into
+service. The decision about what to recover stays yours.
 
-Costo: una decina di righe in `open()` e un paio di test. **Verdetto: da fare
-subito, insieme a 16.1.**
+Cost: ten lines or so in `open()` and a couple of tests. **Verdict: to do now,
+together with 16.1.**
 
-### 16.3 — Il mirror automatico: perché no
+### 16.3 — The automatic mirror: why not
 
-L'idea era: se il servizio non riparte, rimetti al suo posto l'ultima copia
-buona del database. Tre obiezioni.
+The idea was: if the service does not come back up, put the last good copy of
+the database back in place. Three objections.
 
-**La diagnosi sarebbe quasi sempre sbagliata.** Le cause reali per cui EMMA
-non riparte sono, in ordine di frequenza: `.env` incompleto o malformato,
-dipendenza mancante dopo un aggiornamento, errore di codice appena deployato,
-percorso non scrivibile. Il database corrotto non è nemmeno in classifica. Un
-ripristino automatico in tutti quei casi butta via le conversazioni recenti
-senza risolvere nulla, e sostituisce un errore diagnosticabile con un
-comportamento inspiegabile.
+**The diagnosis would nearly always be wrong.** The real reasons EMMA does not
+start are, in order of frequency: an incomplete or malformed `.env`, a missing
+dependency after an update, a code error just deployed, a path that is not
+writable. A corrupt database does not even make the list. An automatic restore
+in all those cases throws away the recent conversations without solving
+anything, and replaces a diagnosable error with inexplicable behaviour.
 
-**La corruzione è rarissima con questo profilo d'uso.** Un solo processo, una
-sola connessione, commit espliciti, nessuna concorrenza in scrittura: è la
-configurazione più sicura possibile per SQLite. Perché si corrompa serve un
-guasto fisico del disco o un kernel panic dentro una `fsync`. Con WAL attivo
-(16.2) anche quella finestra si stringe.
+**Corruption is extremely rare with this usage profile.** A single process, a
+single connection, explicit commits, no write concurrency: it is the safest
+possible configuration for SQLite. For it to become corrupt you need a physical
+disk failure or a kernel panic inside an `fsync`. With WAL active (16.2) even
+that window narrows.
 
-**Il valore del dato non giustifica la macchina.** La memoria è una finestra
-scorrevole di venti messaggi di conversazione. Perderla costa il contesto
-recente, non un archivio con valore legale o contabile. Un sistema di recovery
-automatico è codice che gira senza supervisione nel momento peggiore possibile
-— l'avvio dopo un guasto — ed è quindi più capace di causare un danno di
-quanto il danno che previene sia grave.
+**The value of the data does not justify the machinery.** The memory is a
+sliding window of twenty conversation messages. Losing it costs the recent
+context, not an archive with legal or accounting value. An automatic recovery
+system is code that runs unsupervised at the worst possible moment — startup
+after a fault — and is therefore more capable of causing damage than the damage
+it prevents is serious.
 
-**Verdetto: non vale la pena.** Il rilevamento (16.2) dà il novanta per cento
-del beneficio con il dieci per cento del rischio. Rilevare e segnalare è il
-comportamento giusto; ripristinare da soli non lo è.
+**Verdict: not worth it.** Detection (16.2) gives ninety per cent of the benefit
+with ten per cent of the risk. Detecting and reporting is the right behaviour;
+restoring on one's own is not.
 
-### 16.5 — Cosa è stato implementato, e perché non contraddice 16.3
+### 16.5 — What was implemented, and why it does not contradict 16.3
 
-Hai chiesto che EMMA riuscisse comunque a ripristinarsi da sola "per quanto
-possibile". L'implementazione accoglie la richiesta senza rinunciare
-all'obiezione, perché il confine è **su cosa fa scattare il ripristino**, non
-sul ripristino in sé.
+You asked that EMMA should still be able to restore herself "as far as
+possible". The implementation accepts the request without giving up the
+objection, because the boundary is **what triggers the restore**, not the
+restore itself.
 
-**Quello che è stato fatto.** All'apertura EMMA verifica il database con
-`PRAGMA integrity_check`. Se il controllo fallisce — quindi con una diagnosi
-accertata, non ipotizzata — sposta il file rotto in `emma.db.corrotto-<data>`,
-ripristina lo snapshot più recente che supera lo stesso controllo, e se anche
-quello è illeggibile prova la generazione precedente. Se non c'è nulla di
-sano, riparte vuota. Tutto a livello ERROR nei log.
+**What was done.** On opening, EMMA verifies the database with `PRAGMA
+integrity_check`. If the check fails — so with an established diagnosis, not a
+supposed one — it moves the broken file to `emma.db.corrupt-<date>`, restores
+the most recent snapshot that passes the same check, and if that one is
+unreadable too, tries the previous generation. If nothing healthy exists, it
+starts empty. All at ERROR level in the logs.
 
-**Quello che continua a non essere fatto**, ed è il punto di 16.3: nessun
-ripristino parte perché *il servizio non è partito*. Un `.env` incompleto, una
-dipendenza mancante, un errore di codice appena deployato non raggiungono
-nemmeno questo codice — falliscono prima, con il loro messaggio d'errore
-intatto. È la distinzione che rende la differenza fra una riparazione e un
-insabbiamento.
+**What is still not done**, and is the point of 16.3: no restore is triggered
+because *the service did not start*. An incomplete `.env`, a missing dependency,
+a code error just deployed do not even reach this code — they fail earlier, with
+their own error message intact. It is the distinction that makes the difference
+between a repair and a cover-up.
 
-La regola in una riga: **si ripristina su una diagnosi, mai su un sintomo.**
-`integrity_check` è una diagnosi; "non parte" è un sintomo con una dozzina di
-cause diverse, di cui la corruzione del database è la meno probabile.
+The rule in one line: **you restore on a diagnosis, never on a symptom.**
+`integrity_check` is a diagnosis; "it does not start" is a symptom with a dozen
+different causes, of which database corruption is the least likely.
 
-**Perdita di dati accettata.** Il ripristino riporta allo stato dell'ultimo
-snapshot, scritto all'ultimo avvio o all'ultimo spegnimento pulito. I messaggi
-scambiati dopo quel momento sono persi, e il log lo dice esplicitamente. Si
-potrebbe stringere la finestra con uno snapshot periodico (un task asincrono
-nel lifespan, o un timer systemd): è la leva giusta se un giorno la finestra
-risultasse troppo larga, e non richiede di toccare la logica di recupero.
+**Accepted data loss.** The restore returns to the state of the last snapshot,
+written at the last start or the last clean shutdown. Messages exchanged after
+that moment are lost, and the log says so explicitly. The window could be
+narrowed with a periodic snapshot (an async task in the lifespan, or a systemd
+timer): that is the right lever if one day the window turned out to be too wide,
+and it does not require touching the recovery logic.
 
-### 16.4 — Se un giorno il dato diventasse importante
+### 16.4 — If one day the data became important
 
-Se in una fase futura EMMA conservasse note, promemoria o dati che non puoi
-ricostruire, la risposta corretta non sarebbe comunque il mirror automatico,
-ma: snapshot orari con `VACUUM INTO` invece che giornalieri, una copia fuori
-casa (già voce 13), e un comando di ripristino esplicito documentato. La
-frequenza e la destinazione sono le leve giuste; l'automatismo di recovery
-resta la leva sbagliata.
+If in a future phase EMMA kept notes, reminders or data you cannot reconstruct,
+the correct answer would still not be the automatic mirror, but: hourly
+snapshots with `VACUUM INTO` instead of daily ones, a copy away from the house
+(already entry 13), and a documented explicit restore command. The frequency and
+the destination are the right levers; automatic recovery remains the wrong one.
 
 ---
 
-## 17. EMMA committente del proprio sviluppo (proposta, 31 agosto 2026)
+## 17. EMMA as the commissioner of her own development (proposal, 31 August 2026)
 
-**Da dove nasce.** Tua idea: *"vorrei che EMMA utilizzasse le tue capacità di
-scrittura di codice per implementarsi dall'esterno"*. Non un canale di lavoro
-parallelo — quello lo avevo proposto io e sbagliavo — ma EMMA stessa come
-committente: le chiedi una capacità che non ha, lei la registra, io la
-implemento, lei riparte avendola.
+**Where it comes from.** Your idea: *"vorrei che EMMA utilizzasse le tue
+capacità di scrittura di codice per implementarsi dall'esterno"* — that EMMA
+should use my code-writing abilities to implement herself from the outside. Not
+a parallel work channel — I had proposed that and I was wrong — but EMMA herself
+as the commissioner: you ask her for a capability she does not have, she records
+it, I implement it, she restarts having it.
 
-EMMA non si modifica: è il processo in esecuzione, non può riscriversi sotto i
-piedi. Ma può **commissionare la propria evoluzione e riceverla**.
+EMMA does not modify herself: she is the running process, she cannot rewrite
+herself from under her own feet. But she can **commission her own evolution and
+receive it**.
 
-Questa voce è il progetto concordato in conversazione. Nulla è implementato.
+This entry is the design agreed in conversation. Nothing is implemented.
 
-### 17.1 — I vincoli che lo definiscono
+### 17.1 — The constraints that define it
 
-Sono tuoi, e sono quelli che hanno scartato le alternative:
+They are yours, and they are the ones that ruled out the alternatives:
 
-| Vincolo | Cosa esclude |
+| Constraint | What it excludes |
 | --- | --- |
-| Un solo bot, EMMA | il canale di lavoro separato |
-| **Per ora nessuna API key: Claude Code aperto sul PC di sviluppo** | ogni variante headless o installata come servizio |
-| Nessuna spesa in più | il polling a modello acceso |
-| EMMA non parla mai per prima | ogni notifica push |
-| Permesso a ogni passaggio | l'esecuzione autonoma fino in fondo |
-| Permessi pieni sulla macchina | i prompt di conferma locali |
+| One bot only, EMMA | the separate work channel |
+| **For now no API key: Claude Code open on the development PC** | every headless variant, or one installed as a service |
+| No additional spending | polling with the model running |
+| EMMA never speaks first | every push notification |
+| Permission at every step | autonomous execution all the way through |
+| Full permissions on the machine | local confirmation prompts |
 
-Gli ultimi due sembrano contraddirsi e non lo fanno: agiscono su piani diversi.
-Nessun blocco **sulla macchina**, dove non hai accesso fisico e non potresti
-rispondere; consenso esplicito **in conversazione**, dove il telefono basta.
+The last two seem to contradict each other and do not: they act on different
+planes. No blocking **on the machine**, where you have no physical access and
+could not answer; explicit consent **in conversation**, where the phone is
+enough.
 
-**Nessuna chiave a consumo per il lato sviluppo, per il momento.** L'esecutore è
-una sessione interattiva di Claude Code aperta sul PC di sviluppo, che gira
-sull'abbonamento già in uso. Niente `ANTHROPIC_API_KEY` per generare codice,
-nessun demone, nessun servizio da installare, niente in esecuzione sul VPS oltre
-a EMMA. Restano quindi fuori **da questa prima versione**:
+**No metered key on the development side, for the time being.** The executor is
+an interactive Claude Code session open on the development PC, running on the
+subscription already in use. No `ANTHROPIC_API_KEY` for generating code, no
+daemon, no service to install, nothing running on the VPS beyond EMMA. So the
+following stay outside **this first version**:
 
-- Claude Code headless sul VPS di produzione;
-- un servizio systemd che lanci lavoro autonomo;
-- qualunque esecuzione che consumi una chiave a pagamento.
+- headless Claude Code on the production VPS;
+- a systemd service launching autonomous work;
+- any execution that consumes a paid key.
 
-È una scelta sul *quando*, non sul *se*: potrà cambiare, e il progetto è
-costruito perché cambiarla non costi una riscrittura (17.1.1).
+It is a choice about *when*, not about *whether*: it can change, and the design
+is built so that changing it does not cost a rewrite (17.1.1).
 
-Una parte però non dipende dal pagamento. Il PC di sviluppo è **oggi l'unico
-posto dove il lavoro può realmente avvenire**: lì ci sono il repository con la
-sua storia, git configurato e la raggiungibilità di GitHub — che il VPS non ha,
-essendo solo IPv6. Anche pagando, un esecutore su quel server non riuscirebbe a
-pushare. Il server ospita EMMA; il PC ospita l'officina.
+One part, though, does not depend on payment. The development PC is **today the
+only place where the work can actually happen**: that is where the repository
+with its history lives, where git is configured, and where GitHub is reachable —
+which the VPS is not, being IPv6-only. Even paying, an executor on that server
+could not push. The server hosts EMMA; the PC hosts the workshop.
 
-Finché vale questo assetto, due conseguenze:
+While this arrangement holds, two consequences:
 
-- **Se la sessione non è aperta, non succede niente.** Non c'è un processo che
-  raccoglie i task in sua assenza. Il PC acceso con la sessione viva è parte
-  dell'architettura, e spegnerlo è l'interruttore generale.
-- **Il consumo è quello dell'abbonamento**, contato in uso della sessione e non
-  in token fatturati. È esattamente per questo che 17.4 esiste: non per
-  risparmiare denaro su una bolletta, ma per non bruciare la sessione in
-  risvegli a vuoto.
+- **If the session is not open, nothing happens.** There is no process
+  collecting jobs in its absence. The PC switched on with a live session is part
+  of the architecture, and turning it off is the master switch.
+- **The consumption is the subscription's**, counted in session usage and not in
+  billed tokens. That is exactly why 17.4 exists: not to save money on a bill,
+  but to avoid burning the session on empty wake-ups.
 
-Da qui anche la lettura corretta del cancello *"spesa su API a pagamento"* fra i
-quattro che hai scelto: allo stato attuale riguarda **EMMA**, cioè un eventuale
-passaggio dal tier gratuito di Groq alle API Anthropic a consumo. Il lato
-sviluppo, per ora, non ha una chiave da spendere; se un giorno l'avrà, quel
-cancello coprirà anche lui.
+Hence also the correct reading of the *"spending on paid APIs"* gate among the
+four you chose: as things stand it concerns **EMMA**, that is, a possible move
+from Groq's free tier to the metered Anthropic APIs. The development side, for
+now, has no key to spend; if one day it has, that gate will cover it too.
 
-### 17.1.1 — Cosa cambierebbe se un domani diventasse a pagamento
+### 17.1.1 — What would change if one day it became paid
 
-Vale la pena fissarlo adesso, perché è quello che tiene la porta aperta: il
-progetto è **neutro rispetto all'esecutore**. La coda, i checkpoint, i tre tool
-di EMMA e il modo in cui le domande ti raggiungono non sanno chi stia
-lavorando dall'altra parte.
+It is worth fixing this now, because it is what keeps the door open: the design
+is **neutral with respect to the executor**. The queue, the checkpoints, EMMA's
+tools and the way the questions reach you do not know who is working at the
+other end.
 
-| Pezzo | Se l'esecutore cambia |
+| Piece | If the executor changes |
 | --- | --- |
-| tabella `tasks` e macchina a stati | invariati |
-| i tre tool di EMMA (17.6) | invariati |
-| checkpoint 1/3/4/5 e loro semantica | invariati |
-| attesa a costo zero (17.4) | invariata come idea, cambia chi la esegue |
-| chi raccoglie e lavora | è l'unico pezzo che si sostituisce |
+| the `tasks` table and the state machine | unchanged |
+| EMMA's tools (17.6) | unchanged |
+| checkpoints 1/3/4/5 and their meaning | unchanged |
+| the zero-cost wait (17.4) | unchanged as an idea, what changes is who runs it |
+| who collects and works | the only piece that gets replaced |
 
-Cambierebbe quindi una cosa sola: da "una sessione aperta che si risveglia" a
-"un esecutore che gira da sé". Sparirebbe il rischio principale — la sessione
-che muore senza che nessuno se ne accorga (17.8) — e comparirebbero i due che
-oggi non abbiamo: una chiave da custodire e una spesa da limitare.
+So one thing only would change: from "an open session that wakes up" to "an
+executor that runs by itself". The main risk would disappear — the session that
+dies without anyone noticing (17.8) — and the two we do not have today would
+appear: a key to keep safe and spending to cap.
 
-Resterebbe comunque da risolvere la raggiungibilità di GitHub, che è
-indipendente dal pagamento: o l'esecutore sta sul PC di sviluppo, o serve un
-host con IPv4. Non è un problema da affrontare adesso, ma è bene sapere che è
-lì e che non si compra con un abbonamento.
+Reaching GitHub would still have to be solved, and that is independent of
+payment: either the executor sits on the development PC, or an IPv4 host is
+needed. Not a problem to face now, but it is as well to know it is there and
+that a subscription does not buy it.
 
-### 17.2 — Il ciclo
-
-```
- tu → EMMA        "vorrei che ricordassi i miei appuntamenti"
-        │
-        ▼
- EMMA            riconosce una richiesta di sviluppo e chiede conferma
-        │        (oppure la scrivi esplicita: "sviluppo: ...")
-        ▼
- tabella tasks   la richiesta resta lì, con le tue parole
-        │
-        ▼
- io              me ne accorgo, leggo il codice, capisco
-        │
-        ├──▶ CHECKPOINT 1   "ho capito così, il piano è questo. Procedo?"
-        │
-        ▼
- io              implemento, scrivo i test, verifico
-        │
-        ├──▶ CHECKPOINT 3   "fatto, test verdi, ecco il diff. Committo?"
-        │
-        ▼
- io              commit locale
-        │
-        ├──▶ CHECKPOINT 4   "committato <hash>. Pusho?"
-        │
-        ▼
- io              push su GitHub
-        │
-        ├──▶ CHECKPOINT 5   "pushato. Deployo sul VPS?"
-        │
-        ▼
- io              deploy, servizio riavviato
-        │
-        ▼
- EMMA            riparte con la capacità in più
-```
-
-I checkpoint sono **1, 3, 4, 5**: manca quello fra implementazione e commit
-perché lì non c'è una decisione tua — se i test falliscono li sistemo, non ti
-consulto. Il diff te lo mostro comunque, al checkpoint 3, che è il momento in
-cui puoi ancora dire "hai capito male" a costo zero.
-
-Ogni checkpoint chiede il permesso di **passare alla fase successiva**, non di
-confermare quella conclusa.
-
-### 17.3 — Come ti arrivano le domande senza che EMMA parli per prima
-
-È il pezzo che rende compatibili "una voce sola" e "nessun messaggio non
-richiesto". Le mie domande finiscono nella stessa tabella; EMMA te le riferisce
-**quando gliele chiedi tu**, e la tua risposta torna indietro per la stessa
-strada.
+### 17.2 — The cycle
 
 ```
- tu:    EMMA, a che punto sono i lavori?
+ you → EMMA       "vorrei che ricordassi i miei appuntamenti"
+        │
+        ▼
+ EMMA            recognises a development request and asks for confirmation
+        │        (or you write it explicitly: "sviluppo: ...")
+        ▼
+ tasks table     the request sits there, in your own words
+        │
+        ▼
+ me              I notice it, read the code, understand
+        │
+        ├──► CHECKPOINT 1   "this is how I read it, this is the plan. Go ahead?"
+        │
+        ▼
+ me              implement, write the tests, verify
+        │
+        ├──► CHECKPOINT 3   "done, tests green, here is the diff. Commit?"
+        │
+        ▼
+ me              local commit
+        │
+        ├──► CHECKPOINT 4   "committed <hash>. Push?"
+        │
+        ▼
+ me              push to GitHub
+        │
+        ├──► CHECKPOINT 5   "pushed. Deploy to the VPS?"
+        │
+        ▼
+ me              deploy, service restarted
+        │
+        ▼
+ EMMA            restarts with the extra capability
+```
+
+The checkpoints are **1, 3, 4, 5**: the one between implementation and commit is
+missing because there is no decision of yours there — if the tests fail I fix
+them, I do not consult you. I show you the diff all the same, at checkpoint 3,
+which is the moment you can still say "you misunderstood" at no cost.
+
+Every checkpoint asks permission to **move to the next phase**, not to confirm
+the one just finished.
+
+### 17.3 — How the questions reach you without EMMA speaking first
+
+This is the piece that makes "a single voice" and "no unsolicited message"
+compatible. My questions end up in the same table; EMMA reports them to you
+**when you ask her**, and your answer travels back the same way.
+
+```
+ you:   EMMA, a che punto sono i lavori?
  EMMA:  #3 — implementato, 53 test verdi. Committo?
         #4 — ho capito che vuoi X. Procedo?
         #5 — in attesa dalla fase 1.
- tu:    sì al 3, il 4 no, intendevo altro
+ you:   sì al 3, il 4 no, intendevo altro
  EMMA:  Registrato.
 ```
 
-Il costo è la latenza: se non chiedi per sei ore, resto fermo sei ore. Ma il
-lavoro non si blocca del tutto — quello che sta prima del primo cancello
-prosegue, e si ferma solo la pubblicazione, che è esattamente ciò che deve
-fermarsi.
+The cost is latency: if you do not ask for six hours, I stand still for six
+hours. But the work does not stop entirely — what comes before the first gate
+carries on, and only publication stops, which is exactly what should stop.
 
-Due attenuanti, entrambe compatibili con i vincoli:
+Two mitigations, both compatible with the constraints:
 
-- **raggruppare**: un solo "a che punto sei?" risolve tutti i cancelli aperti,
-  come nell'esempio sopra;
-- **concedere in anticipo per singolo task**: *"il #4 portalo fino al push"*
-  lascia il default rigido e ti dà una corsia veloce quando sai già cosa vuoi.
+- **batching**: a single "how far along are you?" resolves every open gate, as
+  in the example above;
+- **granting in advance for one job**: *"take #4 as far as the push"* leaves the
+  strict default in place and gives you a fast lane when you already know what
+  you want.
 
-### 17.4 — Perché non costa di più
+### 17.4 — Why it does not cost more
 
-Il punto su cui l'idea si sarebbe rotta. Se fossi io a controllare la coda ogni
-quindici minuti, pagheresti ogni risveglio a vuoto, e la quasi totalità lo
-sarebbe.
+The point on which the idea would have broken. If I were the one checking the
+queue every fifteen minutes, you would pay for every empty wake-up, and almost
+all of them would be empty.
 
-Non serve che sia io a guardare. Un comando di shell in background fa il giro —
-`ssh` sul VPS, una `SELECT`, se non c'è niente dorme e riprova — e **finché
-dorme il modello non gira**: sta lavorando `bash`, che non consuma token. Quando
-trova qualcosa il comando termina, e la sua terminazione mi risveglia.
+I do not have to be the one watching. A background shell command does the round
+— `ssh` to the VPS, a `SELECT`, and if there is nothing it sleeps and tries
+again — and **while it sleeps the model does not run**: what is working is
+`bash`, which consumes no tokens. When it finds something the command exits, and
+its exit wakes me.
 
-Si consuma solo quando c'è lavoro vero: una giornata senza task costa zero
-invece di novantasei risvegli inutili.
+Consumption happens only when there is real work: a day with no jobs costs zero
+instead of ninety-six pointless wake-ups.
 
-Trattandosi dell'abbonamento e non di una chiave a consumo (17.1), la cosa da
-proteggere non è una bolletta ma la **capienza della sessione**: ogni risveglio
-inutile consuma contesto e uso, e una sessione che deve restare aperta per
-giorni non se lo può permettere. Lo stesso meccanismo che eviterebbe la spesa
-evita l'esaurimento.
+Since this is the subscription and not a metered key (17.1), the thing to
+protect is not a bill but the **session's capacity**: every pointless wake-up
+consumes context and usage, and a session that has to stay open for days cannot
+afford it. The same mechanism that would avoid the spending avoids the
+exhaustion.
 
-Lato EMMA non cambia nulla: resta sul tier gratuito di Groq, e registrare un
-task è una chiamata a un tool, non una generazione.
+On EMMA's side nothing changes: she stays on Groq's free tier, and filing a job
+is a tool call, not a generation.
 
-### 17.5 — Dove vivono i task
+### 17.5 — Where the jobs live
 
-**Nello stesso file SQLite della memoria** (`data/emma.db`), in una tabella
-`tasks`, gestita da un modulo separato con una connessione propria — non
-dentro `SqliteConversationMemory`, che ha un'altra responsabilità.
+**In the same SQLite file as the memory** (`data/emma.db`), in a `tasks` table,
+managed by a separate module with a connection of its own — not inside
+`SqliteConversationMemory`, which has a different responsibility.
 
-L'alternativa era un secondo file `data/tasks.db`. L'ho scartata per un motivo
-concreto: tutto quello che è stato costruito il 31 agosto — controllo di
-integrità all'avvio, snapshot con `VACUUM INTO`, ripristino dalla copia sana,
-backup consistente — vale **per quel file**. Un secondo database o duplicherebbe
-tutta quella macchina o ne resterebbe scoperto, e sarebbe scoperto in silenzio.
-La modalità WAL rende sicuro l'accesso concorrente, quindi la mia lettura via
-SSH non disturba il servizio che ci scrive.
+The alternative was a second file, `data/tasks.db`. I ruled it out for a
+concrete reason: everything built on 31 August — the integrity check at startup,
+the `VACUUM INTO` snapshots, restoration from the healthy copy, the consistent
+backup — applies **to that file**. A second database would either duplicate all
+that machinery or be left uncovered by it, and it would be uncovered silently.
+WAL mode makes concurrent access safe, so my reading over SSH does not disturb
+the service writing to it.
 
-Il rovescio da accettare: se il database venisse ripristinato da uno snapshot,
-tornerebbero indietro anche i task. È coerente, ed è meglio dell'alternativa.
+The downside to accept: if the database were restored from a snapshot, the jobs
+would go back too. That is consistent, and better than the alternative.
 
-Schema minimo:
+The minimal schema:
 
-| Colonna | Cosa contiene |
+| Column | What it holds |
 | --- | --- |
-| `id` | progressivo, è il numero con cui ne parli a EMMA |
-| `created_at`, `updated_at` | quando |
-| `request` | la richiesta **con le tue parole**, non riassunta |
-| `stage` | dove siamo: `nuovo`, `capito`, `committato`, `pushato`, `deployato` |
+| `id` | sequential; it is the number you use when talking to EMMA about it |
+| `created_at`, `updated_at` | when |
+| `request` | the request **in your own words**, not summarised |
+| `stage` | where we are: `nuovo`, `capito`, `committato`, `pushato`, `deployato` |
 | `status` | `da_prendere`, `attende_te`, `in_corso`, `chiuso`, `abbandonato` |
-| `note` | quello che ti dico a questo checkpoint |
-| `answer` | la tua risposta, come EMMA l'ha registrata |
+| `note` | what I tell you at this checkpoint |
+| `answer` | your answer, as EMMA recorded it |
 
-### 17.6 — Cosa serve a EMMA (è v0.3)
+### 17.6 — What EMMA needs (this is v0.3)
 
-Tre tool, tutti piccoli:
+Three tools, all small:
 
-- **`commissiona_sviluppo(descrizione)`** — inserisce un task. Ci si arriva in
-  due modi: il prefisso esplicito `sviluppo: ...`, oppure il riconoscimento del
-  modello seguito da una tua conferma. Il secondo usa `gpt-oss-120b` per quello
-  che sa fare — capire un'intenzione — e non per decidere da solo: se sbaglia
-  ti costa un "no".
-- **`stato_lavori()`** — elenca i task che attendono te, con le mie domande.
-- **`rispondi(id, testo)`** — registra la tua risposta.
+- **`commissiona_sviluppo(description)`** — inserts a job. There are two ways to
+  reach it: the explicit `sviluppo: ...` prefix, or recognition by the model
+  followed by a confirmation from you. The second uses `gpt-oss-120b` for what
+  it is good at — understanding an intention — and not to decide on its own: if
+  it gets it wrong it costs you a "no".
+- **`stato_lavori()`** — lists the jobs waiting for you, with my questions.
+- **`rispondi(id, text)`** — records your answer.
 
-Sono esattamente i primi strumenti concreti per il router agentico, che aspetta
-tool dalla v0.1: il ciclo tool-use c'è già ed è testato, la lista è vuota.
+They are precisely the first concrete tools for the agentic router, which has
+been waiting for tools since v0.1: the tool-use loop is already there and
+tested, the list is empty.
 
-### 17.7 — Il paradosso dell'avvio
+### 17.7 — The bootstrapping paradox
 
-Il tool che permette a EMMA di commissionare sviluppo va scritto nel modo
-normale, da me con te al PC. **Il primo anello non può auto-generarsi.** Da lì
-in poi il ciclo si chiude e ogni capacità successiva può arrivare per quella
-strada.
+The tool that lets EMMA commission development has to be written the normal way,
+by me with you at the PC. **The first link cannot generate itself.** From there
+on the cycle closes and every later capability can arrive by that route.
 
-### 17.8 — Cosa può andare storto
+### 17.8 — What can go wrong
 
-- **La sessione muore** (riavvio, crash, contesto esaurito) e il comando in
-  attesa muore con lei: tu continui a commissionare e nessuno raccoglie. È il
-  rischio principale, ed è strutturale — non esistendo un servizio (17.1), non
-  c'è nulla che riparta da solo. Serve un modo per accorgersene: un `last_seen`
-  che aggiorno a ogni risveglio e che EMMA ti riferisce quando chiedi lo stato,
-  così *"ultimo contatto: due giorni fa"* ti dice che la sessione è da
-  riaprire.
+- **The session dies** (a restart, a crash, exhausted context) and the waiting
+  command dies with it: you carry on commissioning and nobody collects. It is
+  the main risk, and it is structural — with no service (17.1), there is nothing
+  that restarts by itself. A way of noticing is needed: a `last_seen` that I
+  update on every wake-up and that EMMA reports when you ask for the status, so
+  that *"last contact: two days ago"* tells you the session needs reopening.
 
-  **Osservato il 31 agosto, e più grave del previsto.** Il guardiano ha fatto
-  due giri regolari (13:29, 13:34, esattamente a 300 secondi) e poi si è
-  fermato prima del terzo, **senza codice di uscita e senza errori**: non è
-  morto per un difetto suo, è stato smontato dall'esterno. Un comando in
-  background non è garantito sopravvivere a lungo alla sessione che lo ha
-  avviato.
+  **Observed on 31 August, and worse than expected.** The watcher did two
+  regular rounds (13:29, 13:34, exactly 300 seconds apart) and then stopped
+  before the third, **with no exit code and no errors**: it did not die of a
+  defect of its own, it was dismantled from outside. A background command is not
+  guaranteed to outlive the session that started it for long.
 
-  Ne discende una divisione onesta dei ruoli, che vale la pena tenere a mente
-  invece di scoprirla di nuovo:
+  From which follows an honest division of roles, worth keeping in mind rather
+  than discovering again:
 
-  | Pezzo | Affidabilità |
+  | Piece | Reliability |
   | --- | --- |
-  | hook `SessionStart` (17.6bis) | **certa** — scatta a ogni apertura, nessun processo da tenere vivo |
-  | guardiano `watch-tasks.sh` | **al meglio delle possibilità** — utile finché vive, non una garanzia |
+  | the `SessionStart` hook (17.6bis) | **certain** — fires on every opening, no process to keep alive |
+  | the `watch-tasks.sh` watcher | **best effort** — useful while it lives, not a guarantee |
 
-  Il risultato pratico è comunque accettabile: apri una sessione e sai subito
-  se c'è lavoro; mentre lavori, se il guardiano è vivo ti sveglia. Quello che
-  **non** si può promettere è "commissiono di notte e lo trovo fatto".
-- **Il contesto si esaurisce** su una sessione lunga: ricordo le decisioni, non
-  ogni dettaglio. `SESSIONS.md` e `ROADMAP.md` sono la memoria vera e vanno
-  aggiornati spesso, non a fine sessione.
-- **Il modello debole sbaglia il riconoscimento**: contenuto dalla conferma.
-- **Il task è ambiguo**: il checkpoint 1 esiste per questo. Chiedo, non
-  indovino.
-- **La chiave SSH sul PC** dà accesso al VPS. È già così oggi, ma in questo
-  scenario la sessione la usa da sola: vale la pena che sia una chiave dedicata
-  con `command=` ristretto, non quella di amministrazione.
+  The practical result is acceptable all the same: you open a session and know
+  at once whether there is work; while you work, if the watcher is alive it
+  wakes you. What **cannot** be promised is "I commission it at night and find
+  it done".
+- **The context runs out** on a long session: I remember the decisions, not
+  every detail. `SESSIONS.md` and `ROADMAP.md` are the real memory and have to
+  be updated often, not at the end of the session.
+- **The weak model misreads the intent**: contained by the confirmation.
+- **The job is ambiguous**: checkpoint 1 exists for this. I ask, I do not guess.
+- **The SSH key on the PC** gives access to the VPS. That is already the case
+  today, but in this scenario the session uses it unattended: it is worth it
+  being a dedicated key with a restricted `command=`, not the administration
+  one.
 
-### 17.10 — Lo stato non si chiede a un tool: si mette davanti
+### 17.10 — State is not asked of a tool: it is put in front
 
-**Scoperto in produzione il 31 agosto**, ed è la lezione più generale di tutta
-questa voce.
+**Discovered in production on 31 August**, and it is the most general lesson in
+this whole entry.
 
-L'utente ha chiesto a EMMA quali lavori fossero in sospeso. Lei ne ha riportato
-uno su due, descrivendolo per giunta con l'interpretazione che lui aveva
-esplicitamente scartato. Nei log: `tools=0`. **Non aveva chiamato lo strumento
-affatto** — aveva ripetuto, parola per parola, una risposta sbagliata data
-quindici minuti prima e finita nella memoria persistente.
+The user asked EMMA which jobs were outstanding. She reported one of the two,
+and described it with the very interpretation he had explicitly rejected. In the
+logs: `tools=0`. **She had not called the tool at all** — she had repeated, word
+for word, a wrong answer given fifteen minutes earlier and stored in the
+persistent memory.
 
-Ecco l'interazione che non avevamo previsto: **la memoria (v0.2) e i tool (v0.3)
-si danneggiano a vicenda.** Una risposta ricavata da un tool, una volta salvata,
-diventa indistinguibile da un fatto; e alla domanda successiva il modello la
-riusa invece di rifare la domanda. Non è specifico dei lavori: vale per
-qualunque strumento che riporti uno stato che cambia.
+Here is the interaction we had not foreseen: **the memory (v0.2) and the tools
+(v0.3) damage each other.** An answer derived from a tool, once stored, becomes
+indistinguishable from a fact; and at the next question the model reuses it
+instead of asking again. It is not specific to jobs: it holds for any tool that
+reports state that changes.
 
-**Misurato, dieci tentativi per configurazione, stessa domanda:**
+**Measured, ten attempts per configuration, the same question:**
 
-| Configurazione | Risposte corrette |
+| Configuration | Correct answers |
 | --- | --- |
-| cronologia avvelenata, nessun contesto | 6/10 |
-| cronologia avvelenata + contesto | 8/10 |
-| cronologia pulita, nessun contesto | 9/10 |
+| poisoned history, no context | 6/10 |
+| poisoned history + context | 8/10 |
+| clean history, no context | 9/10 |
 
-**Perché non basta istruire il modello.** Un'istruzione nel prompt è una
-richiesta di collaborazione: sposta quei numeri, e li sposta di nuovo — in
-modo diverso — sul modello successivo. Ritarare il prompt a ogni cambio di
-provider è l'opposto della disciplina che regge questo progetto, dove il
-router parla una lingua sola e sono gli adattatori a piegarsi.
+**Why instructing the model is not enough.** An instruction in the prompt is a
+request for cooperation: it moves those numbers, and it moves them again — in a
+different way — on the next model. Recalibrating the prompt at every change of
+provider is the opposite of the discipline that holds this project up, where the
+router speaks one language and it is the adapters that bend.
 
-**La soluzione: `ContextProvider` in `core/router.py`.** Un protocollo con un
-solo metodo asincrono che restituisce lo stato attuale in una riga. Il router
-lo interroga una volta per turno — non a ogni giro di tool, perché lo stato non
-cambia a metà turno — e accoda il risultato al prompt di sistema.
+**The solution: `ContextProvider` in `core/router.py`.** A protocol with a
+single asynchronous method returning the current state in one line. The router
+asks it once per turn — not on every tool round, because the state does not
+change mid-turn — and appends the result to the system prompt.
 
-Le proprietà che contano:
+The properties that matter:
 
-- **Non c'è nessuna decisione da sbagliare.** La riga è presente comunque; una
-  memoria stantia viene contraddetta da qualcosa già sulla pagina, invece che
-  da una consultazione che nessuno ha fatto.
-- **`core/` continua a non sapere cosa sia un task.** Il fornitore glielo passa
-  `main.py`, come i tool: la stessa disciplina della v0.1.
-- **Indipendente dal provider.** È testo nel prompt, non `tool_choice` da
-  tradurre fra due dialetti. Cambiando modello il comportamento non peggiora in
-  silenzio.
-- **Un fornitore che fallisce non costa la risposta.** Viene loggato e saltato.
+- **There is no decision to get wrong.** The line is there regardless; a stale
+  memory is contradicted by something already on the page, instead of by a
+  lookup nobody performed.
+- **`core/` still does not know what a job is.** `main.py` hands it the
+  provider, as it does the tools: the same discipline as v0.1.
+- **Provider-independent.** It is text in the prompt, not a `tool_choice` to be
+  translated between two dialects. Changing model does not silently degrade the
+  behaviour.
+- **A provider that fails does not cost the answer.** It is logged and skipped.
 
-**Alternative scartate.** Forzare `tool_choice` avrebbe richiesto di
-riconoscere "questa è una domanda di stato" senza usare un modello — confronto
-di parole chiave, fragile e legato alla lingua. Non salvare in memoria le
-risposte derivate da tool toglie il veleno ma anche la continuità: EMMA
-dimenticherebbe ciò che ha appena detto.
+**Alternatives rejected.** Forcing `tool_choice` would have required
+recognising "this is a status question" without using a model — keyword
+matching, fragile and language-bound. Not storing tool-derived answers in memory
+removes the poison but also the continuity: EMMA would forget what she had just
+said.
 
-**Il limite onesto.** Nemmeno così si arriva a una garanzia: resta una
-decisione del modello, e i numeri restano numeri di *questo* modello. Quello
-che il fornitore dà non è un tasso migliore, è che la verità aggiornata è
-sempre in vista — quindi il comportamento non degrada di nascosto il giorno in
-cui il modello cambia. È stabilità strutturale, non statistica.
+**The honest limit.** Even this does not reach a guarantee: it remains a
+decision of the model, and the numbers remain the numbers of *this* model. What
+the provider gives is not a better rate, it is that the updated truth is always
+in view — so the behaviour does not degrade in secret the day the model changes.
+It is structural stability, not statistical.
 
-**Verdetto: fatto** (31 agosto 2026), insieme alla pulizia della cronologia
-avvelenata, che da sola valeva tre risposte su dieci.
+**Verdict: done** (31 August 2026), together with cleaning up the poisoned
+history, which on its own was worth three answers in ten.
 
-### 17.9 — Cosa resta fuori, deliberatamente
+### 17.9 — What stays out, deliberately
 
-- **EMMA non conosce il codice.** Lei è l'accettazione, io l'officina. Darle in
-  pasto il repository a ogni turno costerebbe token per un giudizio che rifarei
-  comunque io, che ho davanti storia, test e roadmap.
-- **Nessun deploy automatico.** È il checkpoint 5, sempre.
-- **EMMA non propone miglioramenti di sua iniziativa.** Registra i tuoi.
-- **Nessun secondo bot.**
+- **EMMA does not know the code.** She is the front desk, I am the workshop.
+  Feeding her the repository on every turn would cost tokens for a judgement I
+  would redo anyway, having the history, the tests and the roadmap in front of
+  me.
+- **No automatic deployment.** That is checkpoint 5, always.
+- **EMMA does not propose improvements on her own initiative.** She records
+  yours.
+- **No second bot.**
 
-**Verdetto: da fare come v0.3**, nell'ordine 17.6 → 17.5 → 17.4. Il valore non
-è l'automazione — venti minuti di lavoro restano venti minuti — ma il fatto che
-un'idea avuta lontano dalla tastiera non si perda, e che il tuo giudizio entri
-quattro volte invece che mai.
-
----
-
-## 18. Memoria di fatti persistenti (proposta, 31 agosto 2026)
-
-**Da dove nasce.** Domanda tua: *"se le chiedo di ricordarsi che a=2, dopo 20
-prompt se lo scorda?"* Sì, e peggio di come sembra — verificato eseguendo il
-codice, non deducendolo.
-
-### 18.1 — Cosa succede davvero oggi
-
-`MAX_HISTORY_MESSAGES` conta **messaggi, non scambi**: ogni scambio ne consuma
-due, quindi 20 sono circa dieci scambi. Un fatto detto all'inizio sopravvive
-fino al nono e sparisce al decimo.
-
-E non "si scorda": `SqliteConversationMemory._prune_locked` esegue una `DELETE`.
-Il database non conserva tutto mostrandone venti — **ne conserva venti in
-tutto**. Quel testo non è più recuperabile da nessuno, nemmeno leggendo il file.
-
-Il criterio di sopravvivenza è l'**età**, non l'importanza: `a=2` muore insieme
-a "che ore sono".
-
-### 18.2 — Dove vanno i token, misurato
-
-Prima di proporre qualcosa vale la pena sapere cosa costa cosa. Stima a ~4
-caratteri per token, validata contro i log reali (1.927 stimati, 1.900–2.600
-osservati):
-
-| Componente | Token | Quota |
-| --- | --- | --- |
-| prompt di sistema | ~755 | 39% |
-| dichiarazioni dei tool | ~537 | 28% |
-| cronologia (20 messaggi) | ~600 | 31% |
-| riga di contesto | ~35 | 2% |
-
-**Il costo fisso è più del doppio della cronologia.** Ne segue una correzione a
-un consiglio che avevo dato a voce: ridurre `MAX_HISTORY_MESSAGES` da 20 a 10
-risparmia ~300 token su 1.900, cioè il **15%**, non "quasi metà". Si
-perderebbe metà della memoria per un sesto del consumo: **non conviene, e la
-voce esiste anche per non ripetere quell'errore.**
-
-Le leve vere sul consumo sono il prompt di sistema e le descrizioni dei tool —
-pagati anche quando l'utente scrive solo "ciao". Ma sono anche ciò che fa
-decidere bene al modello, quindi accorciarli è un compromesso, non un
-guadagno netto.
-
-### 18.3 — Le strade, e perché ne resta una
-
-| Strada | Pro | Contro |
-| --- | --- | --- |
-| finestra più grande | una riga nel `.env` | costo lineare, beneficio modesto (18.2) |
-| **fatti persistenti** | non scadono, costano poco, indipendenti dal provider | qualcuno deve decidere cos'è un fatto |
-| riassunto automatico | conserva il senso a costo ridotto | perdita imprevedibile, e **un riassunto sbagliato è peggio dell'assenza** (voce 17.10) |
-| ricerca sui messaggi vecchi | storia illimitata | serve infrastruttura fuori scala per questo progetto |
-
-Il riassunto lo scarterei per la lezione della voce 17.10: la risposta
-plausibile e sbagliata è quella che nessuno pensa di verificare.
-
-### 18.4 — La forma: un modulo, non un pezzo del core
-
-I due punti di innesto esistono già e sono stati costruiti oggi: il protocollo
-`Tool` e il protocollo `ContextProvider`. Un modulo di memoria sarebbe
-`tools/memory/` con i suoi tool, il suo fornitore di contesto e la sua tabella,
-registrato con **una riga in `main.py`** — e tolto togliendo quella riga.
-
-`core/` continuerebbe a non sapere cosa sia un ricordo, come oggi non sa cosa
-sia un task.
-
-### 18.5 — Il rapporto con il memory tool di Anthropic
-
-Esiste ed è reale: si dichiara `{"type": "memory_20250818", "name": "memory"}`,
-il modello riceve operazioni su file (`view`, `create`, `str_replace`, `insert`,
-`delete`, `rename`) e il backend lo implementi tu — l'SDK Python offre
-`BetaAbstractMemoryTool` come base.
-
-**Ma è uno strumento definito da Anthropic**, quindi non funziona su Groq.
-Adottarlo legherebbe la memoria a un provider, che è esattamente il vincolo che
-l'utente ha posto per la voce 17.10. Quello che si può prendere è **il pattern,
-non l'API**: un tool per scrivere, uno per leggere, e l'iniezione nel contesto.
-
-Si perderebbe la sofisticazione — lì il modello organizza da sé un albero di
-file, qui si avrebbe una lista piatta. Per un assistente personale la lista
-piatta è probabilmente sufficiente, e si può sempre approfondire dopo.
-
-Da notare: il memory tool di Anthropic **ha lo stesso punto debole** misurato
-nella voce 17.10, perché resta uno strumento che il modello deve *scegliere* di
-usare. La difesa è la stessa: il fornitore di contesto.
-
-### 18.6 — Il problema vero, che nessuna strada risolve
-
-**Chi decide cos'è un fatto degno di memoria.**
-
-- Lo decide il modello → sbaglia, e non è un'ipotesi: 6 volte su 10 non
-  chiamava nemmeno lo strumento che aveva davanti (17.10).
-- Lo decide l'utente con un prefisso esplicito (*"ricorda: a=2"*) → affidabile,
-  meno magico. È la stessa scelta fatta per `sviluppo:` in 17.6, e lì ha retto.
-
-E il problema che nessuno dei due affronta: **i fatti si contraddicono e
-invecchiano.** `a=2` oggi, `a=3` fra un mese, e ora ce ne sono due. Serve una
-politica dichiarata — l'ultimo vince? te lo chiede? — e una potatura, altrimenti
-crescono finché non costano quanto la finestra che dovevano sostituire.
-
-**Verdetto: da fare, ma non prima che il progetto sia stabile.** È il tool più
-utile fra quelli in lista — un assistente che dimentica tutto dopo dieci scambi
-resta una chat — ma va progettato con la politica dei conflitti decisa *prima*,
-non scoperta dopo.
+**Verdict: to do as v0.3**, in the order 17.6 → 17.5 → 17.4. The value is not
+the automation — twenty minutes of work stay twenty minutes — but the fact that
+an idea had away from the keyboard is not lost, and that your judgement comes in
+four times instead of never.
 
 ---
 
-## 18-bis. Memoria di fatti: implementata il 1 settembre 2026
+## 18. Persistent fact memory (proposal, 31 August 2026)
 
-La voce 18 era una proposta; questa e' cosa e' stato costruito, e le due cose
-in cui la misura ha corretto il progetto.
+**Where it comes from.** A question of yours: *"se le chiedo di ricordarsi che
+a=2, dopo 20 prompt se lo scorda?"* — if I ask her to remember that a=2, does
+she forget it after 20 prompts? Yes, and worse than it looks — verified by
+running the code, not by deducing it.
 
-`tools/facts/` — chiamato **facts** e non **memory** come scritto nella 18.4,
-perche' `core/memory.py` esiste gia' ed e' l'opposto: dimentica per anzianita'.
-Due moduli chiamati "memoria" che dicono cose opposte sul dimenticare sono una
-collisione di nomi che questo progetto ha gia' pagato una volta.
+### 18.1 — What actually happens today
 
-**Due tool, non tre.** Niente `recall`: tutto e' gia' nel contesto, e una terza
-dichiarazione si pagherebbe a ogni turno per rispondere a una domanda di cui il
-modello vede gia' la risposta.
+`MAX_HISTORY_MESSAGES` counts **messages, not exchanges**: every exchange
+consumes two, so 20 is about ten exchanges. A fact stated at the beginning
+survives to the ninth and disappears at the tenth.
 
-**Le due correzioni arrivate dalla misura, non dal ragionamento:**
+And it does not "forget": `SqliteConversationMemory._prune_locked` runs a
+`DELETE`. The database does not keep everything and show twenty — **it keeps
+twenty in total**. That text is no longer recoverable by anybody, not even by
+reading the file.
 
-1. **Avevo sottostimato il costo all'utente.** Gli avevo detto +15%. Le sole
-   dichiarazioni dei tool costano **303 token a ogni turno**, pagati anche a
-   vuoto: il costo parte da +13% con zero fatti. La stima aveva contato i fatti
-   e dimenticato gli strumenti per gestirli.
-2. **Il tetto prometteva piu' di quanto potesse mantenere.** `MAX_ACTIVE_FACTS`
-   era 100, ma il limite di 4.000 caratteri sul contesto iniettato ne fa entrare
-   ~80: gli altri sarebbero stati salvati, contati e mai visti dal modello.
-   Portato a **50**, i due limiti smettono di contendersi il ruolo — il conteggio
-   vincola l'uso normale, i caratteri restano una difesa contro i fatti lunghi.
+The survival criterion is **age**, not importance: `a=2` dies alongside "what
+time is it".
 
-**Costo finale, misurato sul traffico di produzione:** da ~84 scambi/giorno a
-~75 (nessun fatto), ~64 (trenta fatti), ~59 (al tetto).
+### 18.2 — Where the tokens go, measured
 
-**Verificato prima di collegare qualsiasi cosa:** i 357 test preesistenti girati
-intatti, tutti verdi. Dopo il collegamento ne e' fallito uno solo — quello che
-asserisce l'insieme esatto dei tool, cioe' il test che fa il suo mestiere.
-Verificato in particolare che i tre store convivano sullo stesso file SQLite
-senza che la finestra smetta di potare, i fatti inizino a scadere, o il
-controllo d'integrita' fallisca.
+Before proposing anything it is worth knowing what costs what. An estimate at ~4
+characters per token, validated against the real logs (1,927 estimated,
+1,900–2,600 observed):
 
-## 19. Nessuno interroga `/health` (proposta, 31 agosto 2026)
+| Component | Tokens | Share |
+| --- | --- | --- |
+| system prompt | ~755 | 39% |
+| tool declarations | ~537 | 28% |
+| history (20 messages) | ~600 | 31% |
+| the context line | ~35 | 2% |
 
-Durante la revisione per la produzione ho reso onesto l'endpoint `/health`:
-prima rispondeva `"status": "ok"` in ogni circostanza, database morto compreso.
-Ora legge davvero dallo store prima di rispondere e restituisce `503` con
-`"status": "degraded"` quando non ci riesce, insieme al conteggio dei turni e
-al motivo dell'ultimo degrado.
+**The fixed cost is more than double the history.** From which follows a
+correction to advice I had given verbally: reducing `MAX_HISTORY_MESSAGES` from
+20 to 10 saves ~300 tokens out of 1,900, that is **15%**, not "nearly half". You
+would lose half the memory for a sixth of the consumption: **not worth it, and
+this entry exists partly so as not to repeat that mistake.**
 
-**Resta però il problema vero: nessuno lo legge.** Ho cercato in `systemd/` e
-in `scripts/` e non c'è un solo consumatore. Un endpoint di monitoraggio che
-nessuno interroga non ha mai impedito un guasto — e stasera i guasti li hai
-notati tu tre volte prima del servizio.
+The real levers on consumption are the system prompt and the tool descriptions —
+paid for even when the user only writes "hello". But they are also what makes
+the model decide well, so shortening them is a trade-off, not a net gain.
 
-Non l'ho collegato da solo perché toccare `systemd/` o aggiungere un job
-periodico significa cambiare il layout di deploy, che la regola 2 mi vieta di
-fare senza che tu lo chieda. Le opzioni, dalla più leggera:
+### 18.3 — The routes, and why one remains
 
-| | Come | Costo | Cosa ottieni |
+| Route | For | Against |
+| --- | --- | --- |
+| a larger window | one line in the `.env` | linear cost, modest benefit (18.2) |
+| **persistent facts** | they do not expire, they cost little, provider-independent | somebody has to decide what a fact is |
+| automatic summarising | preserves the sense at a reduced cost | unpredictable loss, and **a wrong summary is worse than none** (entry 17.10) |
+| search over old messages | unlimited history | needs infrastructure out of scale for this project |
+
+I would rule out summarising because of the lesson in entry 17.10: the plausible
+wrong answer is the one nobody thinks to check.
+
+### 18.4 — The shape: a module, not a piece of the core
+
+The two attachment points already exist and were built today: the `Tool`
+protocol and the `ContextProvider` protocol. A memory module would be
+`tools/memory/` with its own tools, its own context provider and its own table,
+registered with **one line in `main.py`** — and removed by removing that line.
+
+`core/` would carry on not knowing what a memory is, just as today it does not
+know what a job is.
+
+### 18.5 — The relationship with Anthropic's memory tool
+
+It exists and it is real: you declare `{"type": "memory_20250818", "name":
+"memory"}`, the model receives file operations (`view`, `create`,
+`str_replace`, `insert`, `delete`, `rename`) and you implement the backend — the
+Python SDK offers `BetaAbstractMemoryTool` as a base.
+
+**But it is a tool defined by Anthropic**, so it does not work on Groq. Adopting
+it would tie the memory to one provider, which is exactly the constraint the
+user set in entry 17.10. What can be taken is **the pattern, not the API**: one
+tool to write, one to read, and injection into the context.
+
+The sophistication would be lost — there the model organises a file tree by
+itself, here there would be a flat list. For a personal assistant the flat list
+is probably enough, and one can always go deeper later.
+
+Worth noting: Anthropic's memory tool **has the same weak point** measured in
+entry 17.10, because it remains a tool the model has to *choose* to use. The
+defence is the same: the context provider.
+
+### 18.6 — The real problem, which no route solves
+
+**Who decides what is a fact worth remembering.**
+
+- The model decides → it gets it wrong, and this is not a hypothesis: 6 times
+  out of 10 it did not even call the tool in front of it (17.10).
+- The user decides with an explicit prefix (*"ricorda: a=2"*) → reliable, less
+  magical. It is the same choice made for `sviluppo:` in 17.6, and it held there.
+
+And the problem neither of them addresses: **facts contradict each other and
+age.** `a=2` today, `a=3` in a month, and now there are two. A declared policy is
+needed — last one wins? does it ask you? — and pruning, or they grow until they
+cost as much as the window they were meant to replace.
+
+**Verdict: to do, but not before the project is stable.** It is the most useful
+tool on the list — an assistant that forgets everything after ten exchanges
+stays a chat — but it has to be designed with the conflict policy decided
+*first*, not discovered afterwards.
+
+---
+
+## 18-bis. Fact memory: implemented on 1 September 2026
+
+Entry 18 was a proposal; this is what was built, and the two things in which
+measurement corrected the design.
+
+`tools/facts/` — called **facts** and not **memory** as written in 18.4, because
+`core/memory.py` already exists and is the opposite: it forgets by age. Two
+modules called "memory" saying opposite things about forgetting are a name
+collision this project has already paid for once.
+
+**Two tools, not three.** No `recall`: everything is in the context already, and
+a third declaration would be paid for on every turn in order to answer a
+question whose answer the model can already see.
+
+**The two corrections that came from measurement, not from reasoning:**
+
+1. **I had underestimated the cost to the user.** I had told him +15%. The tool
+   declarations alone cost **303 tokens on every turn**, paid even when unused:
+   the cost starts at +13% with zero facts. The estimate had counted the facts
+   and forgotten the tools for managing them.
+2. **The cap promised more than it could keep.** `MAX_ACTIVE_FACTS` was 100, but
+   the 4,000-character limit on the injected context lets ~80 in: the rest would
+   have been stored, counted and never seen by the model. Brought down to **50**,
+   the two limits stop competing for the same role — the count constrains normal
+   use, the character limit stays as a defence against long facts.
+
+**Final cost, measured on production traffic:** from ~84 exchanges/day to ~75
+(no facts), ~64 (thirty facts), ~59 (at the cap).
+
+**Verified before wiring anything up:** the 357 pre-existing tests ran
+untouched, all green. After wiring, exactly one failed — the one asserting the
+exact set of tools, that is, the test doing its job. Verified in particular that
+the three stores coexist on the same SQLite file without the window ceasing to
+prune, the facts starting to expire, or the integrity check failing.
+
+## 19. Nobody queries `/health` (proposal, 31 August 2026)
+
+During the review for production I made the `/health` endpoint honest: before,
+it answered `"status": "ok"` under all circumstances, a dead database included.
+Now it really reads from the store before answering and returns `503` with
+`"status": "degraded"` when it cannot, together with the turn count and the
+reason for the last degradation.
+
+**But the real problem remains: nobody reads it.** I searched `systemd/` and
+`scripts/` and there is not a single consumer. A monitoring endpoint nobody
+queries has never prevented a fault — and this evening you noticed the faults
+three times before the service did.
+
+I did not wire it up on my own because touching `systemd/` or adding a periodic
+job means changing the deployment layout, which rule 2 forbids me to do without
+your asking. The options, from the lightest:
+
+| | How | Cost | What you get |
 | --- | --- | --- | --- |
-| A | `ExecStartPost` / un timer che fa `curl -f localhost:8000/health` | una riga di unit | systemd sa che è degradata, e lo scrive nel journal |
-| B | `WatchdogSec=` + `sd_notify` dal processo | una dipendenza in più (`systemd-python`) e codice nel lifespan | systemd **riavvia** EMMA quando smette di stare bene |
-| C | Aggiungere il controllo a `scripts/backup.sh`, che gira già alle 03:30 | poche righe di shell, zero unit nuove | te ne accorgi entro 24 ore, e il backup sa se sta salvando un DB sano |
+| A | `ExecStartPost` / a timer running `curl -f localhost:8000/health` | one line of unit | systemd knows it is degraded, and writes it in the journal |
+| B | `WatchdogSec=` + `sd_notify` from the process | one more dependency (`systemd-python`) and code in the lifespan | systemd **restarts** EMMA when she stops being well |
+| C | Adding the check to `scripts/backup.sh`, which already runs at 03:30 | a few lines of shell, no new units | you find out within 24 hours, and the backup knows whether it is saving a healthy DB |
 
-**Implementata la C il 31 agosto 2026** (`scripts/backup.sh`): interroga
-`/health` prima di scrivere il manifest, registra l'esito nel journal e nel
-`MANIFEST.txt`, e non fa mai fallire il backup — un servizio fermo è una
-ragione per conservare i dati, non per saltarli. Provata contro un server vero
-nei tre casi (200, 503, nessuna risposta); il terzo ha rivelato un difetto nel
-codice appena scritto, perché `curl` stampa già `000` da solo e il fallback ne
-aggiungeva un secondo.
+**C was implemented on 31 August 2026** (`scripts/backup.sh`): it queries
+`/health` before writing the manifest, records the outcome in the journal and in
+`MANIFEST.txt`, and never makes the backup fail — a stopped service is a reason
+to keep the data, not to skip it. Tested against a real server in all three
+cases (200, 503, no answer); the third revealed a defect in the code just
+written, because `curl` already prints `000` by itself and the fallback added a
+second one.
 
-**Il mio parere era:** la **C** è quella che vale di più subito e costa meno di
-tutte — il job notturno esiste già, gira comunque, e ha una ragione propria per
-voler sapere se il database sta bene *prima* di copiarlo. La **B** è la
-soluzione giusta a lungo termine ma è l'unica che aggiunge una dipendenza, e un
-riavvio automatico su un servizio che parla con te via Telegram va deciso da
-te, non da me: un loop di riavvii è peggio di un servizio degradato che
-risponde.
+**My view was:** **C** is the one worth most immediately and costs least of all
+— the nightly job already exists, runs regardless, and has a reason of its own
+for wanting to know whether the database is well *before* copying it. **B** is
+the right long-term solution but is the only one that adds a dependency, and an
+automatic restart on a service that talks to you through Telegram has to be
+decided by you, not by me: a restart loop is worse than a degraded service that
+answers.
 
-**Verdetto: la C conviene, ma è una modifica al deploy — dimmi tu.**
+**Verdict: C is worth it, but it is a change to the deployment — your call.**
 
-## 20. Spezzare `core/llm.py` (valutata e scartata, 31 agosto 2026)
+## 20. Splitting `core/llm.py` (evaluated and rejected, 31 August 2026)
 
-Il piano di revisione diceva "spezzare `core/llm.py`", che era a 758 righe
-contro le 480 del modulo successivo. Ho fatto invece un'altra cosa, e spiego
-perche'.
+The review plan said "split `core/llm.py`", which was at 758 lines against the
+480 of the next module. I did something else instead, and here is why.
 
-**Cosa ho fatto.** La duplicazione, non la dimensione, era il difetto vero. I
-due client avevano due scale di `except` strutturalmente identiche, ed e'
-esattamente la deriva che aveva gia' prodotto un bug reale: per un'intera
-release il client Groq ha ignorato ogni dichiarazione di tool, perche' la
-funzione era stata aggiunta a una copia e non all'altra. Guardando i due file
-separatamente quel bug non si vedeva. I due SDK hanno una tassonomia
-**identica** — `APIConnectionError`, `RateLimitError`, `APIStatusError`, e una
-radice che cambia solo di nome — quindi la scala ora e' scritta una volta sola
-(`_RetryLadder`) e parametrizzata. I due `complete()` sono passati da 107 e 81
-righe a meno di 40 ciascuno, e non resta una sola clausola `except` specifica
-per provider. I formati di log sono rimasti identici, verificati riga per riga.
+**What I did.** The duplication, not the size, was the real defect. The two
+clients had two structurally identical `except` ladders, and that is exactly the
+drift that had already produced a real bug: for a whole release the Groq client
+ignored every tool declaration, because the function had been added to one copy
+and not the other. Looking at the two files separately, that bug was invisible.
+The two SDKs have an **identical** taxonomy — `APIConnectionError`,
+`RateLimitError`, `APIStatusError`, and a root that differs only in name — so
+the ladder is now written once (`_RetryLadder`) and parameterised. The two
+`complete()` methods went from 107 and 81 lines to fewer than 40 each, and not
+one provider-specific `except` clause remains. The log formats stayed identical,
+verified line by line.
 
-**Cosa non ho fatto, e perche'.** Restava da spezzare il file. Il candidato
-ovvio erano le tre funzioni di traduzione del dialetto Groq: 149 righe, pure,
-con un file di test dedicato (`tests/test_llm_groq_tools.py`) — cioe' tutti i
-segni di una preoccupazione gia' separata nei fatti.
+**What I did not do, and why.** Splitting the file remained. The obvious
+candidate was the three functions translating the Groq dialect: 149 lines, pure,
+with a dedicated test file (`tests/test_llm_groq_tools.py`) — that is, all the
+signs of a concern already separate in fact.
 
-Non lo e'. Quelle funzioni dipendono dal vocabolario (`Message`, `TextBlock`,
-`ToolUseBlock`, `LLMResponse`, `_text_of`) che vive in `core/llm.py`, e
-`core/llm.py` dovrebbe importare loro: **import circolare**. La cucitura non e'
-dove sembrava. Per esistere richiederebbe un terzo modulo:
+It is not. Those functions depend on the vocabulary (`Message`, `TextBlock`,
+`ToolUseBlock`, `LLMResponse`, `_text_of`) that lives in `core/llm.py`, and
+`core/llm.py` would have to import them: **a circular import**. The seam is not
+where it appeared to be. To exist it would need a third module:
 
-| Modulo | Contenuto | Righe stimate |
+| Module | Contents | Estimated lines |
 | --- | --- | --- |
-| `core/messages.py` | `Message`, i tipi di blocco, `LLMResponse`, `_text_of` | ~90 |
-| `core/groq_dialect.py` | le tre funzioni di traduzione | ~160 |
-| `core/llm.py` | protocollo, errori, `_RetryLadder`, i due client | ~530 |
+| `core/messages.py` | `Message`, the block types, `LLMResponse`, `_text_of` | ~90 |
+| `core/groq_dialect.py` | the three translation functions | ~160 |
+| `core/llm.py` | the protocol, the errors, `_RetryLadder`, the two clients | ~530 |
 
-E' piu' pulito. Ma e' un cambio di confini fra moduli — la regola 2 — deciso
-alla vigilia di una pubblicazione, per un guadagno che a quel punto e' solo la
-dimensione del file: la duplicazione era gia' sparita, nessuna funzione supera
-le 40 righe tranne le traduzioni pure, la copertura e' al 94%. Un lettore che
-insegue `LLMResponse` aprirebbe tre file invece di uno.
+It is cleaner. But it is a change of module boundaries — rule 2 — decided on the
+eve of a release, for a gain that at that point is only the size of the file:
+the duplication was already gone, no function exceeds 40 lines except the pure
+translations, coverage is at 94%. A reader chasing `LLMResponse` would open
+three files instead of one.
 
-### Ripreso il 1 settembre 2026, su domanda diretta: lo spezzeresti?
+### Revisited on 1 September 2026, on a direct question: would you split it?
 
-No. E misurando ho cambiato idea su **quale** sia il problema.
+No. And in measuring it I changed my mind about **which** the problem is.
 
-Il file sembra grande il doppio di quello che e'. Contando alla stessa maniera
-in tutti i moduli — righe totali meno docstring, commenti e righe vuote:
+The file looks twice as big as it is. Counting the same way across every module
+— total lines minus docstrings, comments and blank lines:
 
-| Modulo | Codice vero | File |
+| Module | Real code | File |
 | --- | --- | --- |
 | `core/llm.py` | **407** | 798 |
 | `core/memory.py` | 232 | 472 |
@@ -1528,359 +1544,358 @@ in tutti i moduli — righe totali meno docstring, commenti e righe vuote:
 | `core/tasks.py` | 172 | 348 |
 | `adapters/telegram.py` | 144 | 303 |
 
-Il 34% di `core/llm.py` sono docstring, che in questo progetto sono deliberate.
-407 righe di codice in un modulo non sono un difetto, e spezzare sulla base
-delle 798 vorrebbe dire reagire a un numero che misura soprattutto prosa. In
-piu' servirebbero **tre** file e non due, per l'import circolare descritto
-sopra: tre file per 407 righe peggiorano la navigazione invece di migliorarla.
+34% of `core/llm.py` is docstrings, which in this project are deliberate. 407
+lines of code in a module are not a defect, and splitting on the basis of the
+798 would mean reacting to a number that mostly measures prose. On top of that
+**three** files would be needed rather than two, because of the circular import
+described above: three files for 407 lines make navigation worse, not better.
 
-**Il problema vero era un altro, e il conteggio delle righe lo nascondeva.**
-`_RetryLadder` chiamava `_check_rate_limit` intorno alla riga 280, e quella
-funzione era definita alla 537: leggendo dall'alto si incontrava la chiamata
-**trecento righe prima della sua definizione**. E' questo che fa sembrare un
-file piu' lungo di quanto sia — e spezzarlo non lo risolve, lo sposta in un
-altro file.
+**The real problem was something else, and the line count was hiding it.**
+`_RetryLadder` called `_check_rate_limit` around line 280, and that function was
+defined at 537: reading from the top you met the call **three hundred lines
+before its definition**. That is what makes a file feel longer than it is — and
+splitting it does not solve that, it moves it into another file.
 
-Corretto il 1 settembre 2026: le tre funzioni che classificano un guasto sono
-salite sopra la scala che le usa, e il modulo ha sei separatori di sezione. Ora
-si legge dall'alto in basso senza salti: errori, di cosa e' fatta una risposta,
-come si giudica un guasto, la scala, i due client, la traduzione dei dialetti.
-Nessun altro modulo del progetto ha separatori, perche' nessun altro e'
-abbastanza lungo da averne bisogno.
+Fixed on 1 September 2026: the three functions that classify a fault moved above
+the ladder that uses them, and the module has six section separators. It now
+reads from top to bottom without jumps: errors, what a response is made of, how
+a fault is judged, the ladder, the two clients, the dialect translation. No
+other module in the project has separators, because no other is long enough to
+need them.
 
-**Quando spezzarlo davvero: al terzo provider.** Oggi ci sono due dialetti
-(Anthropic nativo, e Groq che parla OpenAI). Un terzo renderebbe la traduzione
-la preoccupazione dominante del file, e a quel punto la cucitura vale il terzo
-modulo che costa. E' un criterio verificabile, non un "piu' avanti".
+**When to split it for real: at the third provider.** Today there are two
+dialects (native Anthropic, and Groq speaking OpenAI). A third would make
+translation the dominant concern of the file, and at that point the seam is
+worth the third module it costs. That is a verifiable criterion, not a "later
+on".
 
-**Verdetto: deduplicazione e riordino convengono e sono fatti. La divisione in
-tre moduli non conviene ora — rifarsi la domanda quando arriva un terzo
-provider.**
+**Verdict: deduplication and reordering are worth it and are done. Splitting
+into three modules is not worth it now — ask the question again when a third
+provider arrives.**
 
-## 21. Un turno alla volta, e nessuno lo scrive (proposta, 1 settembre 2026)
+## 21. One turn at a time, and nobody writes it down (proposal, 1 September 2026)
 
-`Router.handle()` legge la cronologia, poi passa **secondi** dentro il modello,
-poi scrive le due righe. Fra la lettura e la scrittura non tiene nessun lock.
-Due turni contemporanei sulla stessa conversazione intreccerebbero le scritture:
-nel migliore dei casi l'ordine dei messaggi salvati non e' quello reale, nel
-peggiore la finestra scorrevole taglia via la domanda e lascia la risposta.
+`Router.handle()` reads the history, then spends **seconds** inside the model,
+then writes the two rows. Between the read and the write it holds no lock. Two
+simultaneous turns on the same conversation would interleave their writes: at
+best the order of the stored messages is not the real one, at worst the sliding
+window cuts away the question and leaves the answer.
 
-**Oggi non succede**, e l'ho verificato invece di sperarlo: l'adapter costruisce
-l'applicazione PTB con i valori di default, e in python-telegram-bot 22.8
-`max_concurrent_updates` vale **1**. Gli update sono serializzati, quindi esiste
-al piu' un turno alla volta. I due store (`SqliteConversationMemory` e
-`TaskStore`) hanno ciascuno il proprio `asyncio.Lock` e `append` tiene il lock
-su insert+prune, quindi la singola operazione e' gia' atomica: manca solo
-l'atomicita' del *turno*.
+**Today it does not happen**, and I verified that rather than hoping it: the
+adapter builds the PTB application with the default values, and in
+python-telegram-bot 22.8 `max_concurrent_updates` is **1**. Updates are
+serialised, so there is at most one turn at a time. The two stores
+(`SqliteConversationMemory` and `TaskStore`) each have their own `asyncio.Lock`
+and `append` holds the lock across insert+prune, so the single operation is
+already atomic: only the atomicity of the *turn* is missing.
 
-Il problema e' che questa correttezza dipende da un valore di default di una
-libreria, che nessun file dichiarava. Ho aggiunto il commento in
-`core/router.py`; questa voce e' il seguito.
+The problem is that this correctness depends on a library's default value, which
+no file declared. I added the comment in `core/router.py`; this entry is the
+follow-up.
 
-**Cosa la romperebbe**, in ordine di probabilita':
+**What would break it**, in order of likelihood:
 
-| | Cambiamento | Effetto |
+| | Change | Effect |
 | --- | --- | --- |
-| 1 | Il **satellite vocale sul Raspberry** (gia' in roadmap) | secondo canale, secondo turno in parallelo: la rompe |
-| 2 | `concurrent_updates=True` per far rispondere il bot mentre lavora | la rompe |
-| 3 | Un secondo utente in whitelist | conversazioni diverse, quindi righe diverse: non la rompe |
+| 1 | The **voice satellite on the Raspberry Pi** (already on the roadmap) | a second channel, a second turn in parallel: it breaks |
+| 2 | `concurrent_updates=True` to let the bot answer while it works | it breaks |
+| 3 | A second whitelisted user | different conversations, so different rows: it does not break |
 
-**La correzione**, quando servira': un `dict[str, asyncio.Lock]` per
-conversazione nel router, preso attorno all'intero turno. Non attorno alle sole
-scritture — sarebbe inutile, perche' il problema e' che la cronologia letta
-all'inizio e' gia' vecchia quando si scrive. Costo: una decina di righe, e la
-serializzazione per conversazione che gia' esiste di fatto diventa dichiarata.
+**The fix**, when it is needed: a `dict[str, asyncio.Lock]` per conversation in
+the router, taken around the whole turn. Not around the writes alone — that
+would be useless, because the problem is that the history read at the start is
+already stale by the time of the write. Cost: ten lines or so, and the
+per-conversation serialisation that already exists in fact becomes declared.
 
-**Verdetto: non farlo ora** — sarebbe codice che protegge da una condizione che
-non puo' verificarsi, e non testabile senza fabbricare la concorrenza che non
-c'e'. **Farlo come primo passo del satellite vocale**, prima di aggiungere il
-secondo canale, non dopo.
+**Verdict: do not do it now** — it would be code protecting against a condition
+that cannot occur, and untestable without manufacturing the concurrency that is
+absent. **Do it as the first step of the voice satellite**, before adding the
+second channel, not after.
 
-## 22. Il deploy non toglie mai niente (proposta, 1 settembre 2026)
+## 22. Deployment never removes anything (proposal, 1 September 2026)
 
-Scoperto guardando perche' il controllo della voce 19-bis segnalava un file su
-un deploy appena fatto. La causa immediata era mia ed e' corretta; questa e'
-l'altra cosa che si e' vista strada facendo.
+Discovered while looking at why the check in entry 19-bis was reporting a file
+on a deployment just made. The immediate cause was mine and is fixed; this is
+the other thing that came to light along the way.
 
-Il passo remoto di `scripts/deploy.sh` fa:
+The remote step of `scripts/deploy.sh` does:
 
     tar -xzf /tmp/emma-deploy.tar.gz -C /opt/emma
 
-`tar` **sovrascrive, non sincronizza**. Un file cancellato dal repository non
-viene mai rimosso dal server: resta li' per sempre. Le conseguenze, in ordine
-di gravita':
+`tar` **overwrites, it does not synchronise**. A file deleted from the
+repository is never removed from the server: it stays there forever. The
+consequences, in order of severity:
 
-1. **Un modulo Python cancellato resta importabile.** Se domani si toglie
-   `tools/introspection.py` e qualcosa lo importa ancora per errore, in
-   sviluppo l'import fallisce subito e in produzione **funziona**, eseguendo
-   codice che non esiste piu' in nessun commit. E' il tipo di divergenza che
-   rende irriproducibile un bug.
-2. Residui che nessuno ha mai spedito consapevolmente. `/opt/emma/.pytest_cache`
-   c'e' oggi (56K) e `.cache` pure, entrambi gia' nella lista di esclusione
-   dell'archivio: sono arrivati prima che quella lista esistesse e non se ne
-   sono piu' andati.
-3. Un file rinominato esiste in produzione sotto entrambi i nomi.
+1. **A deleted Python module stays importable.** If tomorrow
+   `tools/introspection.py` is removed and something still imports it by
+   mistake, in development the import fails at once and in production it
+   **works**, executing code that no longer exists in any commit. It is the kind
+   of divergence that makes a bug irreproducible.
+2. Leftovers nobody ever knowingly shipped. `/opt/emma/.pytest_cache` is there
+   today (56K) and so is `.cache`, both already on the archive's exclusion list:
+   they arrived before that list existed and never left.
+3. A renamed file exists in production under both names.
 
-**Le opzioni**, dalla piu' leggera:
+**The options**, from the lightest:
 
-| | Come | Rischio |
+| | How | Risk |
 | --- | --- | --- |
-| A | Prima di estrarre, cancellare le sole directory interamente spedite (`core`, `adapters`, `tools`, `tests`, `scripts`, `docs`, `prompts`, `systemd`) | basso, ma se l'estrazione fallisce subito dopo l'installazione resta rotta |
-| B | Estrarre in `/opt/emma.new`, poi scambiare le directory con `mv` | il passo di scambio non e' atomico per `.env`, `data/` e `.venv`, che vanno reinnestati |
-| C | `rsync --delete` con le esclusioni, invece di `tar` | il piu' pulito e il piu' corretto; richiede `rsync` sul server e riscrive meta' dello script |
+| A | Before extracting, delete only the directories that are shipped in their entirety (`core`, `adapters`, `tools`, `tests`, `scripts`, `docs`, `prompts`, `systemd`) | low, but if the extraction fails immediately afterwards the installation stays broken |
+| B | Extract into `/opt/emma.new`, then swap the directories with `mv` | the swap step is not atomic for `.env`, `data/` and `.venv`, which have to be grafted back |
+| C | `rsync --delete` with the exclusions, instead of `tar` | the cleanest and the most correct; requires `rsync` on the server and rewrites half the script |
 
-**Il mio parere: la C.** E' l'unica in cui "cosa deve esserci sul server" e'
-scritto in un posto solo invece di essere la somma di tutti i deploy passati.
-La A e' un cerotto che sposta il rischio sul momento peggiore. La B e'
-complicata proprio dove non deve esserlo.
+**My view: C.** It is the only one in which "what must be on the server" is
+written in a single place instead of being the sum of every past deployment. A
+is a sticking plaster that moves the risk to the worst possible moment. B is
+complicated exactly where it must not be.
 
-Non l'ho fatta perche' e' una riscrittura della strada per cui passa ogni
-messa in produzione, e cambiarla all'una di notte subito dopo un deploy
-riuscito non e' una buona idea. Da fare a mente fresca, con un deploy di prova
-verso una directory finta prima di puntarla a `/opt/emma`.
+I did not do it because it is a rewrite of the road every release travels, and
+changing it at one in the morning straight after a successful deployment is not
+a good idea. To be done with a fresh head, with a trial deployment to a dummy
+directory before pointing it at `/opt/emma`.
 
-**Verdetto: la C conviene, ma va fatta da sveglio e provata a vuoto prima.**
+**Verdict: C is worth it, but it has to be done awake and rehearsed first.**
 
-## 23. Accorgersi di un lavoro commissionato a sessione aperta (1 settembre 2026)
+## 23. Noticing a job commissioned while the session is open (1 September 2026)
 
-L'utente ha inserito un lavoro nella coda mentre la sessione era aperta, e non
-me ne sono accorto. Non e' stata una distrazione: **non esisteva un meccanismo
-che potesse dirmelo.**
+The user put a job in the queue while the session was open, and I did not
+notice. It was not inattention: **no mechanism existed that could have told
+me.**
 
-C'era un solo hook, `SessionStart`, che esegue `scripts/queue-brief.sh`
-all'apertura della sessione e mai piu'. Una sessione che dura ore non ha modo
-di sapere che nel frattempo la coda e' cambiata. I due lavori #5 e #6 di ieri
-sera li ho scoperti per caso, perche' stavo abbandonando il #4 e ho eseguito
-`ssh emma-queue list` per un'altra ragione.
+There was a single hook, `SessionStart`, which runs `scripts/queue-brief.sh`
+when the session opens and never again. A session lasting hours has no way of
+knowing that the queue has changed in the meantime. Jobs #5 and #6 from
+yesterday evening I discovered by accident, because I was abandoning #4 and ran
+`ssh emma-queue list` for another reason.
 
-**I tre casi, e cosa copre ciascuno:**
+**The three cases, and what each is covered by:**
 
-| Quando arriva il lavoro | Prima | Adesso |
+| When the job arrives | Before | Now |
 | --- | --- | --- |
-| Prima che la sessione si apra | `SessionStart` | uguale |
-| A sessione aperta, e poi l'utente scrive | **niente** | `UserPromptSubmit` |
-| A sessione aperta, e l'utente non scrive | **niente** | watcher in background, a richiesta |
+| Before the session opens | `SessionStart` | the same |
+| With the session open, and then the user writes | **nothing** | `UserPromptSubmit` |
+| With the session open, and the user does not write | **nothing** | a background watcher, on request |
 
-**Cosa ho fatto.** `queue-brief.sh` prende ora il nome dell'evento come
-argomento (Claude Code scarta l'output il cui `hookEventName` non corrisponde
-all'hook che lo ha eseguito) e il timeout di connessione come secondo. I due
-chiamanti ne vogliono uno diverso: all'avvio dieci secondi spesi per sapere
-sono gratis, su ogni messaggio sono dieci secondi di attesa dell'utente, quindi
-quel chiamante passa quattro. Misurato: 600-700 ms a caldo, 1,5 s a freddo,
-1,4 s quando il server e' irraggiungibile — e in quel caso esce 0 senza
-stampare niente, cosi' il messaggio parte comunque.
+**What I did.** `queue-brief.sh` now takes the event name as an argument (Claude
+Code discards output whose `hookEventName` does not match the hook that ran it)
+and the connection timeout as a second. The two callers want different values:
+at startup ten seconds spent finding out are free, on every message they are ten
+seconds of the user waiting, so that caller passes four. Measured: 600–700 ms
+warm, 1.5 s cold, 1.4 s when the server is unreachable — and in that case it
+exits 0 without printing anything, so the message goes out regardless.
 
-Il nome dell'evento finisce dentro JSON costruito a mano, quindi viene
-validato: un apice li' produrrebbe output che Claude Code non sa leggere, e
-fallirebbe **in silenzio** — il modo peggiore in cui puo' fallire una notifica.
+The event name ends up inside hand-built JSON, so it is validated: a quote there
+would produce output Claude Code cannot read, and it would fail **silently** —
+the worst way a notification can fail.
 
-**La terza riga resta scoperta di default, ed e' onesto dirlo.** Se il lavoro
-arriva e l'utente non scrive nulla, nessun hook scatta: gli hook sono reazioni
-a eventi della sessione, e "non succede niente" non e' un evento.
-`scripts/watch-tasks.sh` esiste per questo — interroga la coda ed esce appena
-c'e' lavoro — ma va avviato esplicitamente in background dalla sessione, muore
-con essa, e ieri sera si e' fermato da solo dopo due cicli. E' best-effort per
-costruzione (voce 17.8: dietro non c'e' nessun servizio).
+**The third row stays uncovered by default, and it is honest to say so.** If the
+job arrives and the user writes nothing, no hook fires: hooks are reactions to
+session events, and "nothing happens" is not an event.
+`scripts/watch-tasks.sh` exists for this — it queries the queue and exits as
+soon as there is work — but it has to be started explicitly in the background by
+the session, dies with it, and yesterday evening stopped by itself after two
+cycles. It is best-effort by construction (entry 17.8: there is no service
+behind it).
 
-### Completata il 1 settembre 2026: anche il terzo caso
+### Completed on 1 September 2026: the third case too
 
-Su richiesta dell'utente ("imposta il riavvio automatico del watcher, e rendilo
-persistente"). Claude Code ha il meccanismo esatto: un hook `asyncRewake` gira
-in background e sveglia il modello quando il comando **esce con 2**. Non
-serviva un servizio: serviva rendere `watch-tasks.sh` adatto a essere quel
-comando. Tre ostacoli, due dei quali erano trappole vere.
+At the user's request ("set up automatic restarting of the watcher, and make it
+persistent"). Claude Code has exactly the right mechanism: an `asyncRewake` hook
+runs in the background and wakes the model when the command **exits with 2**. No
+service was needed: what was needed was making `watch-tasks.sh` fit to be that
+command. Three obstacles, two of them real traps.
 
-**Il codice 2 significava l'opposto.** Nel modo normale vuol dire "ho rinunciato
-dopo sei ore". Collegato cosi', avrebbe svegliato la sessione precisamente
-quando non c'era niente da dire. Il modo hook li inverte e lo documenta.
+**Exit code 2 meant the opposite.** In normal mode it means "I gave up after six
+hours". Wired this way, it would have woken the session precisely when there was
+nothing to say. Hook mode inverts them, and documents it.
 
-**Si sarebbe avvitato.** Il `Stop` riarma il watcher a ogni turno; con lo stesso
-lavoro ancora in coda avrebbe svegliato, riavviato, risvegliato — per sempre,
-se quel lavoro aspetta una risposta. Ora ricorda gli id annunciati, e un
-lucchetto (con il pid verificato, non creduto) rende il riarmo idempotente.
+**It would have spiralled.** The `Stop` hook re-arms the watcher on every turn;
+with the same job still queued it would have woken, restarted, woken again —
+forever, if that job is waiting for an answer. It now remembers the ids it has
+announced, and a lockfile (with the pid verified, not believed) makes re-arming
+idempotent.
 
-**Il terzo era mio:** `break` dentro un `case`, che non e' un ciclo, quindi
-usciva dal `while` e il watcher moriva dopo cinque secondi in silenzio. Trovato
-da un test che chiedeva "e' ancora vivo?", non dalla rilettura.
+**The third was mine:** a `break` inside a `case`, which is not a loop, so it
+exited the `while` and the watcher died after five seconds in silence. Found by
+a test asking "is it still alive?", not by rereading.
 
-**La cache locale, e un errore di progetto che ho corretto da solo.** Avevo
-proposto che l'hook *leggesse* una cache invece di interrogare il server:
-istantaneo. E' sbagliato — una cache vecchia di cinque minuti puo' non
-contenere il lavoro appena inserito, cioe' il difetto che tutto questo esiste
-per chiudere. L'ordine giusto e' l'inverso: **prima il server, la cache solo se
-non risponde**, dichiarando quanto e' vecchio il dato. Un'attivita' pianificata
-ogni 5 minuti la tiene tiepida anche a sessione chiusa.
+**The local cache, and a design error I corrected myself.** I had proposed that
+the hook should *read* a cache instead of querying the server: instantaneous. It
+is wrong — a cache five minutes old may not contain the job just filed, which is
+the very defect all of this exists to close. The right order is the reverse:
+**the server first, the cache only if it does not answer**, declaring how old
+the figure is. A scheduled task every 5 minutes keeps it warm even with no
+session open.
 
-**L'attivita' pianificata e' durata un'ora.** L'utente ha visto una finestra di
-terminale lampeggiare ogni cinque minuti: `-Hidden` in
-`New-ScheduledTaskSettingsSet` nasconde l'attivita' nell'elenco, non la
-finestra, e con `LogonType: Interactive` gira dentro la sessione dell'utente.
-Non potevo accorgermene — non vedo lo schermo — ed e' l'unica classe di difetto
-in cui l'utente e' l'unico strumento di misura disponibile.
+**The scheduled task lasted an hour.** The user saw a terminal window flash
+every five minutes: `-Hidden` in `New-ScheduledTaskSettingsSet` hides the task
+in the list, not the window, and with `LogonType: Interactive` it runs inside
+the user's session. I could not have noticed — I do not see the screen — and it
+is the one class of defect where the user is the only measuring instrument
+available.
 
-Disattivata, non eliminata, su sua richiesta. E la valutazione va rifatta con il
-costo vero sul piatto: la cache e' gia' riscritta a ogni messaggio e a ogni
-apertura di sessione, quindi l'attivita' aggiungeva soltanto aggiornamenti
-mentre nessuna sessione e' aperta — cioe' quando non c'e' nessuno da avvisare.
-Un fastidio permanente per un guadagno marginale e' uno scambio sbagliato, e
-l'avevo proposto io definendolo "la meta' piu' piccola" senza sapere che aveva
-anche un costo visibile.
+Disabled, not deleted, at his request. And the evaluation has to be redone with
+the real cost on the table: the cache is already rewritten on every message and
+every session opening, so the task added only refreshes while no session is open
+— that is, when there is nobody to tell. A permanent annoyance for a marginal
+gain is a bad trade, and I had proposed it, calling it "the smaller half",
+without knowing it also had a visible cost.
 
-Anche li' un difetto trovato provando: sotto `set -o pipefail`, `grep` che non
-trova nulla esce 1, quindi una **coda vuota** era indistinguibile da un server
-irraggiungibile — e con la coda appena svuotata lo script annunciava "5 lavori"
-letti dalla cache. Esattamente il contrario del suo scopo.
+There too, a defect found by trying it: under `set -o pipefail`, a `grep` that
+finds nothing exits 1, so an **empty queue** was indistinguishable from an
+unreachable server — and with the queue just emptied the script announced "5
+jobs" read from the cache. Exactly the opposite of its purpose.
 
-**Verdetto: fatti tutti e tre i casi.** Il terzo resta legato alla sessione —
-muore con essa, e fra la sveglia e il riarmo c'e' una finestra di pochi
-secondi. Renderlo garantito vorrebbe dire un servizio che sopravvive alla
-sessione: l'infrastruttura che questo progetto ha scelto di non avere. Renderlo affidabile vorrebbe dire un servizio che sopravvive
-alla sessione, cioe' esattamente l'infrastruttura che questo progetto ha scelto
-di non avere.
+**Verdict: all three cases done.** The third stays tied to the session — it dies
+with it, and between the wake-up and the re-arm there is a window of a few
+seconds. Making it guaranteed would mean a service that outlives the session:
+precisely the infrastructure this project has chosen not to have.
 
-## 24. Rimuovere un tool in due stadi (proposta dell'utente, 2 settembre 2026)
+## 24. Removing a tool in two stages (the user's proposal, 2 September 2026)
 
-**L'idea e' sua, ed e' migliore della mia.** Avevo proposto una variabile in
-`.env` con l'elenco dei tool spenti, letta all'avvio. Lui ha proposto due stadi:
-alla prima richiesta il tool viene **solo disattivato**; alla seconda, e **solo
-se e' gia' in stato disattivato**, si procede con la rimozione dal codice.
+**The idea is his, and it is better than mine.** I had proposed a variable in
+`.env` with the list of disabled tools, read at startup. He proposed two stages:
+on the first request the tool is **only disabled**; on the second, and **only if
+it is already in the disabled state**, removal from the code goes ahead.
 
-**Perche' e' meglio.** Il secondo stadio esiste gia': "togliere un tool dalla
-codebase" e' un normale lavoro nella coda di sviluppo. Quindi non e' un
-meccanismo nuovo, e' **un guardiano davanti a uno che c'e' gia'**. E il
-guardiano e' quello giusto: "solo se gia' disattivato" significa che si e'
-vissuto senza quel tool per un po', quindi la rimozione definitiva non e' mai
-una decisione presa a caldo. E' la stessa filosofia di `abandon` che non
-cancella e del database corrotto messo in quarantena.
+**Why it is better.** The second stage already exists: "take a tool out of the
+codebase" is an ordinary job in the development queue. So it is not a new
+mechanism, it is **a gatekeeper in front of one that is already there**. And it
+is the right gatekeeper: "only if already disabled" means one has lived without
+that tool for a while, so final removal is never a decision taken in the heat of
+the moment. It is the same philosophy as an `abandon` that does not delete and a
+corrupt database put in quarantine.
 
-**Dove sta la complessita', e non e' dove sembra.** Il router costruisce le
-dichiarazioni con `_tool_schemas()` **a ogni turno** (`core/router.py`, riga
-362), non una volta in costruzione. E' un colpo di fortuna: filtrare i tool
-spenti costa poche righe li', senza rendere mutabile l'insieme che il router
-riceve e senza riavvio. L'effetto sarebbe immediato.
+**Where the complexity lies, and it is not where it appears.** The router builds
+the declarations with `_tool_schemas()` **on every turn** (`core/router.py`,
+line 362), not once at construction. That is a piece of luck: filtering out
+disabled tools costs a few lines there, without making the set the router
+receives mutable and without a restart. The effect would be immediate.
 
-**Le tre domande di progetto:**
+**The three design questions:**
 
-| | Domanda | Risposta proposta |
+| | Question | Proposed answer |
 | --- | --- | --- |
-| 1 | Dove vive lo stato "spento"? | Nel database, accanto ai fatti: sopravvive al riavvio, entra nel backup, e' ispezionabile |
-| 2 | Chi puo' spegnere? | Se e' un tool che EMMA chiama, puo' spegnere quello che serve a riaccendere. `list_tools` e il tool di riattivazione non devono essere spegnibili |
-| 3 | Cosa vede il modello? | Un tool spento sparisce dalle dichiarazioni, quindi non puo' chiamarlo; `list_tools` dovrebbe pero' poterli mostrare come "disattivati", altrimenti l'utente non sa cosa riaccendere |
+| 1 | Where does the "off" state live? | In the database, next to the facts: it survives a restart, it goes into the backup, it is inspectable |
+| 2 | Who can switch things off? | If it is a tool EMMA calls, it can switch off the one needed to switch things back on. `list_tools` and the re-enabling tool must not be switchable |
+| 3 | What does the model see? | A disabled tool disappears from the declarations, so it cannot be called; `list_tools` should still be able to show them as "disabled", or the user does not know what to switch back on |
 
-**Il costo:** un tool in piu' (spegni/riaccendi) pagato a ogni turno, piu' il
-filtro. Stimabile intorno ai 150-200 token/turno, cioe' ~4 scambi/giorno.
+**The cost:** one more tool (off/on) paid for on every turn, plus the filter.
+Estimable at around 150–200 tokens/turn, that is ~4 exchanges/day.
 
-### Implementata il 2 settembre 2026
+### Implemented on 2 September 2026
 
-Fatta su richiesta dell'utente. Le tre domande hanno avuto le risposte
-proposte, e una quarta e' emersa costruendola.
+Done at the user's request. The three questions got the proposed answers, and a
+fourth emerged while building it.
 
-| | Domanda | Come e' finita |
+| | Question | How it ended up |
 | --- | --- | --- |
-| 1 | Dove vive lo stato? | Tabella `tool_state` nello stesso file SQLite: sopravvive al riavvio, entra nel backup, e' ispezionabile |
-| 2 | Chi puo' spegnere? | `PROTECTED` = `list_tools` + `enable_tool`. Un test verifica che quei nomi esistano davvero: una guardia su un nome scritto male non protegge niente |
-| 3 | Cosa vede il modello? | Uno spento sparisce dalle dichiarazioni; `list_tools` lo elenca come *(disattivato)* |
-| 4 | **E se lo chiama lo stesso?** | Rifiutato anche in esecuzione. Una chiamata puo' essere gia' in volo da un turno in cui lo strumento era ancora offerto: nascondere la dichiarazione e' cio' che *di solito* basta, rifiutare e' cio' che lo rende una garanzia |
+| 1 | Where does the state live? | A `tool_state` table in the same SQLite file: it survives a restart, it goes into the backup, it is inspectable |
+| 2 | Who can switch things off? | `PROTECTED` = `list_tools` + `enable_tool`. A test verifies that those names really exist: a guard on a misspelled name protects nothing |
+| 3 | What does the model see? | A disabled one disappears from the declarations; `list_tools` lists it as *(disattivato)* |
+| 4 | **And if it calls it anyway?** | Refused at execution too. A call may already be in flight from a turn in which the tool was still offered: hiding the declaration is what *usually* suffices, refusing is what makes it a guarantee |
 
-**`ToolGate` e' un protocollo in `core/router.py`**, come `Tool` e
-`ContextProvider`. Il router non importa niente da `tools/`: chiede a chi gli e'
-stato passato. E un cancello che non risponde non costa il turno — si offre
-tutto, perche' delle due direzioni sbagliate quella e' la meno grave: offrire
-uno strumento che doveva stare zitto costa una capacita' messa da parte,
-nasconderli tutti lascerebbe l'assistente incapace di fare qualsiasi cosa e
-incapace di spiegare perche'.
+**`ToolGate` is a protocol in `core/router.py`**, like `Tool` and
+`ContextProvider`. The router imports nothing from `tools/`: it asks whatever it
+was handed. And a gate that does not answer does not cost the turn — everything
+is offered, because of the two wrong directions that is the less serious:
+offering a tool that should have kept quiet costs one capability set aside,
+hiding them all would leave the assistant unable to do anything and unable to
+explain why.
 
-**Il costo e' il piu' alto finora:** +276 token a turno per le due
-dichiarazioni, da ~65 a ~59 scambi al giorno. Vale la pena dirlo perche' e' il
-tipo di aggiunta che si paga per sempre e si usa raramente — se un giorno la
-quota stringesse, questi due sono fra i primi candidati a essere spenti da soli.
+**The cost is the highest so far:** +276 tokens per turn for the two
+declarations, from ~65 to ~59 exchanges a day. It is worth saying because it is
+the kind of addition that is paid for forever and used rarely — if one day the
+quota tightened, these two are among the first candidates to be switched off by
+themselves.
 
-### Rivista il 3 settembre 2026, e corretta in tre punti
+### Reviewed on 3 September 2026, and corrected in three places
 
-Revisione richiesta dall'utente e affidata a un revisore separato, con contesto
-costruito apposta invece della cronologia della sessione. Ha trovato tre cose
-vere, e la prima e' la piu' istruttiva.
+A review requested by the user and given to a separate reviewer, with context
+built for the purpose instead of the session's history. It found three true
+things, and the first is the most instructive.
 
-**1. "Gia' spento" era un contatore, non una prova.** `disabled_at` veniva
-scritto e mai letto. Un turno permette fino a cinque giri di strumenti, quindi
-il modello poteva spegnere un tool e chiederne la rimozione **nello stesso
-respiro**. Il codice imponeva due chiamate; i documenti — questo compreso —
-promettevano due occasioni. Aggiunta `MIN_TIME_OFF_SECONDS` (un'ora), e adesso
-la frase e' vera. Da notare: e' una piccola deviazione dal progetto originale
-dell'utente, che diceva "solo se gia' disattivato" e non parlava di tempo. Il
-tempo e' cio' che rende vera la *motivazione* che aveva dato.
+**1. "Already off" was a counter, not evidence.** `disabled_at` was written and
+never read. A turn allows up to five tool rounds, so the model could switch a
+tool off and ask for its removal **in the same breath**. The code required two
+calls; the documents — this one included — promised two occasions.
+`MIN_TIME_OFF_SECONDS` (one hour) was added, and now the sentence is true. Worth
+noting: it is a small deviation from the user's original design, which said
+"only if already disabled" and said nothing about time. Time is what makes the
+*reasoning* he gave true.
 
-**2. Il cancello era vecchio per il resto del turno, e il commento che diceva
-il contrario l'avevo scritto io.** Diceva *"nessuno dei due puo' cambiare sotto
-l'assistente a meta' turno"* — vero prima di questa funzione, falso **a causa**
-di questa funzione: spegnere un tool e' a sua volta un tool. Conseguenza
-visibile: EMMA diceva *"da adesso non lo uso piu'"* e lo usava nel giro
-successivo. Ora le dichiarazioni si ricalcolano a ogni giro.
+**2. The gate was stale for the rest of the turn, and the comment saying
+otherwise was one I had written myself.** It said *"neither of the two can
+change under the assistant mid-turn"* — true before this feature, false
+**because of** this feature: switching a tool off is itself a tool. The visible
+consequence: EMMA said *"from now on I will not use it"* and used it on the next
+round. The declarations are now recomputed on every round.
 
-Scrivendo il test e' emerso un buco piu' stretto ancora: il modello puo'
-emettere `remove_tool(x)` e `x` **nello stesso giro**, e l'insieme letto a
-inizio giro sarebbe gia' vecchio. Quindi il rifiuto in esecuzione ora consulta
-il cancello al momento della chiamata invece di riceverlo. Costo: una query
-indicizzata per chiamata di tool.
+Writing the test turned up a narrower hole still: the model can emit
+`remove_tool(x)` and `x` **in the same round**, and the set read at the start of
+the round would already be stale. So the refusal at execution now consults the
+gate at the moment of the call instead of receiving it. Cost: one indexed query
+per tool call.
 
-**3. Il router non aveva un solo test.** Store e tool erano coperti a fondo; il
-router porta due dei quattro requisiti ed era la parte non testata. L'avevo
-dimostrata a mano in uno script buttato via — cioe' esattamente il tipo di prova
-che sparisce. Ora `tests/test_router_gate.py`, e `core/router.py` e' al **100%**.
+**3. The router did not have a single test.** The store and the tools were
+covered thoroughly; the router carries two of the four requirements and was the
+untested part. I had demonstrated it by hand in a throwaway script — that is,
+exactly the kind of evidence that disappears. Now there is
+`tests/test_router_gate.py`, and `core/router.py` is at **100%**.
 
-**Corretti anche:** `PROTECTED` applicato anche nello store (una guardia in un
-posto solo ha una porta di servizio accanto); niente lavori duplicati alla terza
-richiesta; una riga che sopravvive al tool che nomina non viene piu' contata da
-`list_tools` (diceva "di cui 1 disattivati" senza marcarne nessuno); il mixin
-condiviso rifiuta invece di saltare la validazione quando non e' stato cablato;
-`EnableTool` non eredita piu' un mixin che non usa.
+**Also fixed:** `PROTECTED` enforced in the store as well (a guard in one place
+only has a service door next to it); no duplicate jobs on a third request; a row
+that outlives the tool it names is no longer counted by `list_tools` (it said
+"of which 1 disabled" while marking none); the shared mixin refuses instead of
+skipping validation when it has not been wired; `EnableTool` no longer inherits
+a mixin it does not use.
 
-**Una precisazione dove la revisione calcava troppo:** il secondo stadio non
-cancella codice, registra un lavoro in coda che un umano legge e che
-`abandon_development` puo' togliere. Meno irreversibile di come veniva
-descritto — ma la sostanza reggeva, perche' i documenti promettevano una prova
-che il codice non forniva.
+**One clarification where the review pressed too hard:** the second stage does
+not delete code, it files a job in a queue that a human reads and that
+`abandon_development` can remove. Less irreversible than it was described — but
+the substance held, because the documents promised evidence the code did not
+provide.
 
-**Verdetto: fatta e rivista. 490 test, `core/router.py` al 100%.**
+**Verdict: done and reviewed. 490 tests, `core/router.py` at 100%.**
 
-**Nota collegata:** l'utente ha anche osservato che un giorno servira' *"un tool
-per la personalizzazione"* — il nome dell'utente e' stato tolto dal prompt
-perche' `prompts/system_prompt.txt` e' tracciato e pubblico (regola 7), ma un
-assistente personale che non sa come ti chiami e' una stranezza. La forma
-naturale e' la stessa dei fatti: dati personali nel database, non nel file
-versionato.
+**A related note:** the user also observed that one day *"a personalisation
+tool"* will be needed — the user's name was taken out of the prompt because
+`prompts/system_prompt.txt` is tracked and public (rule 7), but a personal
+assistant that does not know what you are called is an oddity. The natural shape
+is the same as the facts: personal data in the database, not in a versioned
+file.
 
-## Riepilogo dei verdetti
+## Summary of verdicts
 
-| # | Voce | Verdetto |
+| # | Entry | Verdict |
 |---|------|----------|
-| 1 | Pattern adapter | non vale la pena (risposta più ricca: quando servirà) |
-| 2 | Router agentico scritto a mano | non vale la pena cambiare |
-| 3 | Whitelist a utente singolo | fase futura, con le skill |
-| 4 | Config da `.env` a mano | fase futura (pydantic-settings); `LOG_LEVEL` prima |
-| 5 | Retry indiscriminato | **da valutare subito**: distinguere errori definitivi |
-| 6 | Memoria in-memory | fase v0.2: SQLite + WAL, troncamento e riassunti |
-| 7 | Log leggibili su stdout | non vale la pena (JSON solo con le skill) |
-| 8 | Lingue | fase futura (stringhe esternalizzate) |
-| 9 | Telegram long polling | non vale la pena cambiare |
-| 10 | Struttura piatta del progetto | fase futura (`src/`) solo se diventa pacchetto |
-| 11 | `Restart=always` | fase futura (watchdog `sd_notify`) |
-| 12 | FastAPI + uvicorn | non vale la pena cambiare, ma è la prima semplificazione possibile |
-| 13 | Backup `tar.gz` | fase futura: priorità alla copia fuori casa, poi restic |
-| 14 | `CLAUDE.md` unico | fase futura: nucleo corto + `.claude/skills/` |
-| 16.1 | `tar` di un DB vivo | **fatto** (31/08/2026): `VACUUM INTO` verificato in `backup.sh` |
-| 16.2 | WAL + `integrity_check` all'avvio | **fatto** (31/08/2026), con ripristino da snapshot |
-| 16.3 | Mirror automatico generico | non implementato: si ripristina su diagnosi, non su sintomo (16.5) |
-| 16.4 | Snapshot periodici | fase futura, se la finestra di perdita risultasse troppo larga |
-| 17 | EMMA committente del proprio sviluppo | **da fare come v0.3**: tre tool, coda nel database, checkpoint 1/3/4/5 |
-| 18 | Memoria di fatti persistenti | fase futura |
-| 24 | Rimuovere un tool in due stadi | **fatta e rivista**; la revisione ha trovato che "gia' spento" era un contatore e non una prova |
-| 23 | Accorgersi di un lavoro a sessione aperta | **fatti tutti e tre i casi**; l'attivita' pianificata e' stata disattivata: finestra lampeggiante per un guadagno marginale |
-| 22 | Il deploy sovrascrive e non sincronizza | **la C** (`rsync --delete`): un modulo cancellato resta importabile in produzione |
-| 21 | Lock per conversazione nel router | non ora; **primo passo del satellite vocale**, prima del secondo canale |
-| 20 | Spezzare `core/llm.py` in tre moduli | **no**: 407 righe di codice su 798, il resto e' documentazione. Fatti deduplicazione e riordino; rivalutare al terzo provider |
-| 19 | Collegare qualcosa a `/health` | **implementata la C**: controllo dentro `backup.sh`, il 31 agosto 2026 |
+| 1 | The adapter pattern | not worth it (a richer response: when it is needed) |
+| 2 | A hand-written agentic router | not worth changing |
+| 3 | Single-user whitelist | future phase, with the tools |
+| 4 | Hand-written `.env` config | future phase (pydantic-settings); `LOG_LEVEL` first |
+| 5 | Indiscriminate retry | **to weigh now**: distinguish final errors |
+| 6 | In-memory memory | v0.2 phase: SQLite + WAL, truncation and summaries |
+| 7 | Readable logs on stdout | not worth it (JSON only with the tools) |
+| 8 | Languages | done differently: everything in English from 3 September 2026, the personality and the tool strings excepted |
+| 9 | Telegram long polling | not worth changing |
+| 10 | Flat project structure | future phase (`src/`) only if it becomes a package |
+| 11 | `Restart=always` | future phase (an `sd_notify` watchdog) |
+| 12 | FastAPI + uvicorn | not worth changing, but it is the first possible simplification |
+| 13 | `tar.gz` backups | future phase: priority to the copy away from the house, then restic |
+| 14 | A single `CLAUDE.md` | future phase: a short core + `.claude/skills/` |
+| 16.1 | `tar` of a live DB | **done** (31/08/2026): `VACUUM INTO`, verified, in `backup.sh` |
+| 16.2 | WAL + `integrity_check` at startup | **done** (31/08/2026), with restoration from a snapshot |
+| 16.3 | A generic automatic mirror | not implemented: you restore on a diagnosis, not on a symptom (16.5) |
+| 16.4 | Periodic snapshots | future phase, if the loss window turned out to be too wide |
+| 17 | EMMA as the commissioner of her own development | **to do as v0.3**: three tools, a queue in the database, checkpoints 1/3/4/5 |
+| 18 | Persistent fact memory | future phase |
+| 24 | Removing a tool in two stages | **done and reviewed**; the review found that "already off" was a counter and not evidence |
+| 23 | Noticing a job while the session is open | **all three cases done**; the scheduled task was disabled: a flashing window for a marginal gain |
+| 22 | Deployment overwrites and does not synchronise | **C** (`rsync --delete`): a deleted module stays importable in production |
+| 21 | A per-conversation lock in the router | not now; **the first step of the voice satellite**, before the second channel |
+| 20 | Splitting `core/llm.py` into three modules | **no**: 407 lines of code out of 798, the rest is documentation. Deduplication and reordering done; reassess at the third provider |
+| 19 | Wiring something to `/health` | **C implemented**: a check inside `backup.sh`, on 31 August 2026 |
 
-La voce 5 è stata implementata nella v0.1.x (retry solo sugli errori
-transitori). Le 16.1 e 16.2 sono state implementate il 31 agosto 2026. Tutto il
-resto è materiale per le fasi che hai già in roadmap.
+Entry 5 was implemented in v0.1.x (retrying only transient errors). 16.1 and
+16.2 were implemented on 31 August 2026. Everything else is material for the
+phases already on your roadmap.

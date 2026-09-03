@@ -26,6 +26,29 @@ change will always be listed here.
   itself. The sources are in `docs/img/`: plain SVG, no binaries, so a change
   to them is reviewable in a diff.
 
+- **Every document is now in English.** `docs/GUIDA.md` and its PDF,
+  `REVISIONE.md` and `SESSIONS.md` were written in Italian on the principle of
+  "one language per audience"; that principle quietly becomes "one language per
+  author's mood" as soon as the audiences overlap, which here they do. A public
+  repository should read the same way to everybody who finds it.
+
+  Two things stayed in Italian, deliberately, because they are the product and
+  not documentation: `prompts/system_prompt.txt`, which is EMMA's personality,
+  and the strings the tools return, which the user reads on Telegram and which
+  the tests assert character by character. Where a document quotes one of them,
+  the quotation is left in the original with an English gloss beside it — a
+  translated quotation claims the program said something it never said. Rule 6
+  of `CLAUDE.md` now records this, so that a later session does not "tidy up" by
+  translating the personality.
+
+  Three errors surfaced while translating, all in prose that had drifted from
+  the code: the guide named the quarantined database `emma.db.corrotto-<date>`
+  when `core/memory.py` writes `.corrupt-`; chapter 3's file map was still the
+  v0.3 one, missing five modules; and the test table still said 43 tests when
+  there are 490. The regenerated PDF also fixes two arrow glyphs that no
+  installed monospace font had, and that had therefore been printing as blank
+  since the first release.
+
 
 ## [0.4.0] - 2026-09-03
 

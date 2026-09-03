@@ -112,9 +112,25 @@ do it.
 
 ## 6. Language
 
-Code, comments, docstrings, commit messages and the English documents stay in
-English. `docs/GUIDA.md`/`.pdf` and `REVISIONE.md` are written in Italian —
-keep writing in Italian when you edit them.
+**Everything written in this repository is in English** — code, comments,
+docstrings, commit messages, and every document, `docs/GUIDA.md`/`.pdf`,
+`REVISIONE.md` and `SESSIONS.md` included. Those three were Italian until
+v0.4.0 and were translated on the owner's instruction, so that the repository
+reads the same way to everyone who finds it.
+
+Two things are deliberately **not** English, and translating them would be a
+regression rather than a tidy-up:
+
+- `prompts/system_prompt.txt`, which is EMMA's personality. She talks to her
+  owner in Italian. The file is configuration, not documentation.
+- The strings the tools return — `"Registrato come fatto #1."` and the rest.
+  They are what the user reads on Telegram, and the tests assert them.
+
+Where a document quotes one of those, keep the quotation in the original and
+add an English gloss beside it if the meaning carries the point. A translated
+quotation is a false one.
+
+In conversation, speak to the owner in Italian. In the files, write English.
 
 ## 7. Privacy check before every push
 

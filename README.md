@@ -209,8 +209,7 @@ than failing on your first message hours later.
 > **For a real deployment** — dedicated system user, systemd unit, automatic
 > restart, nightly backups with integrity checks, and a tested restore — follow
 > **[`docs/GUIDA.pdf`](docs/GUIDA.pdf)**, which takes a fresh Ubuntu Server to a
-> running assistant in about an hour. That guide is in Italian; this README is
-> the short version in English.
+> running assistant in about an hour. This README is the short version of it.
 
 ---
 
@@ -239,15 +238,17 @@ prompts/                the personality, as plain text you can rewrite
 scripts/                backup, deploy, and the queue watcher
 systemd/                service and backup timer
 tests/                  490 tests, none of which touch the network
-docs/GUIDA.md/.pdf      full deployment and maintenance manual (Italian)
+docs/GUIDA.md/.pdf      full deployment and maintenance manual
 docs/img/               the diagrams on this page, hand-written SVG
 CLAUDE.md               standing rules for AI assistants working on this repo
-REVISIONE.md            design review: what was rejected, and why (Italian)
+REVISIONE.md            design review: what was rejected, and why
 ```
 
-Two documents are in Italian on purpose: the operating manual, for the person
-running the instance, and the design review, addressed to the author. Code,
-comments, docstrings and everything else are in English.
+Everything written here is in English. Two things are deliberately not, and
+both are the product rather than documentation: `prompts/system_prompt.txt`,
+which is EMMA's personality, and the strings her tools return — she speaks
+Italian to the person she belongs to, and that is a configuration choice you can
+change by rewriting one text file.
 
 ---
 

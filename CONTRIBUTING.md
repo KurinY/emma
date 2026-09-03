@@ -54,9 +54,12 @@ The tooling settles most of it: `ruff` is both the formatter and the linter,
 configured in `pyproject.toml`, and its verdict is final. The rest is
 convention:
 
-- **Language.** Code, comments, docstrings, commit messages and issues in
-  English. Two files are Italian on purpose — `docs/GUIDA.md`/`.pdf` and
-  `REVISIONE.md`; leave them that way.
+- **Language.** Everything written in this repository is in English: code,
+  comments, docstrings, commit messages, issues and every document. Two things
+  are deliberately not — `prompts/system_prompt.txt`, which is the assistant's
+  personality, and the strings the tools return, which the user reads on
+  Telegram. Leave those alone; translating them would change the product, not
+  tidy the repository.
 - **Docstrings.** Google style, on every public module, class and function.
   Say what it does and why it exists, not what the next line obviously does.
 - **Type hints** on every public function.
